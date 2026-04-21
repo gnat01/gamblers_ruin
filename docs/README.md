@@ -45,3 +45,9 @@ By default, simulations run until absorption. For large total wealth this can ta
 ```bash
 MPLCONFIGDIR=.mplconfig python src/gamblers_ruin.py --gamblers 6 --total-wealth 100 --sims 100 --save-table outputs/table.csv --save-plot outputs/frequencies.png
 ```
+
+## Ranked Pairing And Hurst Analysis
+
+```bash
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin.py --gamblers 8 --total-wealth 200 --sims 200 --pairing ranked-after-warmup --warmup-rounds 3 --save-trajectory-plot outputs/ranked_trajectory.png --save-hurst-table outputs/ranked_hurst.csv --save-hurst-plot outputs/ranked_hurst.png
+```

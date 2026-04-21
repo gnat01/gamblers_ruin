@@ -62,6 +62,29 @@ Random positive initial amounts:
 python src/gamblers_ruin.py --gamblers 10 --total-wealth 500 --amount-mode random --sims 1000 --seed 7
 ```
 
+## Pairing Strategies
+
+Plain random pairing:
+
+```bash
+python src/gamblers_ruin.py --gamblers 10 --total-wealth 300 --pairing random --sims 500
+```
+
+Ranked pairing after a random warmup:
+
+```bash
+python src/gamblers_ruin.py --gamblers 10 --total-wealth 300 --pairing ranked-after-warmup --warmup-rounds 3 --sims 500
+```
+
+The ranked strategy uses random pairing for the first `--warmup-rounds`, then sorts active gamblers by current wealth and pairs:
+
+```text
+rank 1 vs rank 2
+rank 3 vs rank 4
+rank 5 vs rank 6
+...
+```
+
 ## Save Table And Plot
 
 Save the terminal summary as a CSV table:
@@ -80,6 +103,65 @@ Save both in one run:
 
 ```bash
 MPLCONFIGDIR=.mplconfig python src/gamblers_ruin.py --gamblers 6 --total-wealth 100 --sims 100 --save-table outputs/table.csv --save-plot outputs/frequencies.png
+```
+
+## Save Trajectory And Hurst Outputs
+
+Save one sample trajectory as a PNG:
+
+```bash
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin.py --gamblers 6 --total-wealth 100 --sims 100 --pairing ranked-after-warmup --warmup-rounds 3 --save-trajectory-plot outputs/trajectory.png
+```
+
+Save windowed Hurst estimates as a CSV table:
+
+```bash
+python src/gamblers_ruin.py --gamblers 6 --total-wealth 100 --sims 100 --pairing ranked-after-warmup --warmup-rounds 3 --save-hurst-table outputs/hurst.csv
+```
+
+Save the windowed Hurst summary plot:
+
+```bash
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin.py --gamblers 6 --total-wealth 100 --sims 100 --pairing ranked-after-warmup --warmup-rounds 3 --save-hurst-plot outputs/hurst.png
+```
+
+Control the Hurst windowing:
+
+```bash
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin.py \
+  --gamblers 6 \
+  --total-wealth 100 \
+  --sims 100 \
+  --pairing ranked-after-warmup \
+  --warmup-rounds 3 \
+  --hurst-samples 5 \
+  --hurst-window-size 256 \
+  --hurst-step-size 128 \
+  --save-hurst-table outputs/hurst.csv \
+  --save-hurst-plot outputs/hurst.png
+```
+
+Small games may absorb before a large Hurst window fits. If the Hurst plot is skipped, lower `--hurst-window-size`.
+
+## Save A Ranked-Strategy Report
+
+This writes the survivor table, survivor frequency plot, sample trajectory plot, Hurst table, and Hurst plot:
+
+```bash
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin.py \
+  --gamblers 8 \
+  --total-wealth 200 \
+  --sims 200 \
+  --pairing ranked-after-warmup \
+  --warmup-rounds 3 \
+  --hurst-samples 3 \
+  --hurst-window-size 256 \
+  --hurst-step-size 128 \
+  --save-table outputs/ranked_table.csv \
+  --save-plot outputs/ranked_frequencies.png \
+  --save-trajectory-plot outputs/ranked_trajectory.png \
+  --save-hurst-table outputs/ranked_hurst.csv \
+  --save-hurst-plot outputs/ranked_hurst.png
 ```
 
 ## Save An Animation
@@ -119,8 +201,16 @@ python src/gamblers_ruin.py --amounts 50,25,15,10 --sims 100 --animate
 - `--sims`, `--trials`: number of independent simulations.
 - `--seed`: reproducible random seed; use `--seed -1` for unpredictable randomness.
 - `--max-rounds`: safety cap for each simulation; default `0` means no cap.
+- `--pairing`: `random` or `ranked-after-warmup`.
+- `--warmup-rounds`: random rounds before ranked pairing begins.
 - `--save-table`: save the summary table as a CSV file.
 - `--save-plot`: save expected vs observed survivor frequencies as an image.
+- `--save-trajectory-plot`: save one wealth trajectory line plot.
+- `--save-hurst-table`: save windowed Hurst estimates as a CSV file.
+- `--save-hurst-plot`: save a mean Hurst-over-time plot with a 10th-90th percentile band.
+- `--hurst-samples`: number of sample trajectories used for Hurst analysis.
+- `--hurst-window-size`: rounds per Hurst window.
+- `--hurst-step-size`: stride between Hurst windows.
 - `--animate`: animate one sample trajectory after the repeated simulations.
 - `--output`: save animation to `.gif`, `.mp4`, or `.m4v`.
 - `--interval-ms`: animation frame interval.
