@@ -48,6 +48,13 @@ class HurstRow:
     winner: int
 
 
+@dataclass(frozen=True)
+class SweepVector:
+    vector_id: int
+    family: str
+    amounts: np.ndarray
+
+
 def parse_amounts(raw: str) -> np.ndarray:
     amounts = np.array([int(part.strip()) for part in raw.split(",")], dtype=int)
     if amounts.ndim != 1 or len(amounts) < 2:
@@ -113,6 +120,85 @@ def get_initial_amounts(args: argparse.Namespace, rng: np.random.Generator) -> n
     if args.amounts is not None:
         return validate_amounts(parse_amounts(args.amounts))
     return generate_amounts(args.gamblers, args.total_wealth, args.amount_mode, rng)
+
+
+def wealth_metrics(amounts: np.ndarray) -> dict[str, float]:
+    total = float(amounts.sum())
+    shares = amounts / total
+    sorted_amounts = np.sort(amounts.astype(float))
+    n = len(amounts)
+    pairwise_sum = float((total * total - np.sum(amounts.astype(float) ** 2)) / 2)
+    gini = float((2 * np.sum((np.arange(1, n + 1) * sorted_amounts))) / (n * total) - (n + 1) / n)
+    positive_shares = shares[shares > 0]
+    entropy = float(-np.sum(positive_shares * np.log(positive_shares)))
+    hhi = float(np.sum(shares**2))
+    return {
+        "hhi": hhi,
+        "one_minus_hhi": 1 - hhi,
+        "pairwise_sum": pairwise_sum,
+        "gini": gini,
+        "max_share": float(shares.max()),
+        "entropy": entropy,
+    }
+
+
+def amounts_from_weights(weights: np.ndarray, total_wealth: int) -> np.ndarray:
+    if np.any(weights < 0) or float(weights.sum()) <= 0:
+        raise ValueError("Weights must be nonnegative and not all zero.")
+    amounts = split_total_by_weights(total_wealth - len(weights), weights.astype(float)) + 1
+    return np.sort(validate_amounts(amounts))[::-1]
+
+
+def build_small_sweep_vectors(
+    gamblers: int,
+    total_wealth: int,
+    vectors_per_family: int,
+    rng: np.random.Generator,
+) -> list[SweepVector]:
+    if vectors_per_family < 1:
+        raise ValueError("--sweep-vectors-per-family must be at least 1.")
+
+    families: list[tuple[str, np.ndarray]] = []
+    n = gamblers
+    families.append(("equal", np.ones(n)))
+
+    linear_powers = np.linspace(0.5, 3.0, vectors_per_family)
+    for power in linear_powers:
+        families.append((f"linear_descending_p{power:.2f}", np.arange(n, 0, -1, dtype=float) ** power))
+
+    geometric_ratios = np.linspace(0.55, 0.9, vectors_per_family)
+    for ratio in geometric_ratios:
+        families.append((f"geometric_r{ratio:.2f}", ratio ** np.arange(n, dtype=float)))
+
+    whale_shares = np.linspace(0.3, 0.75, vectors_per_family)
+    for share in whale_shares:
+        weights = np.full(n, (1 - share) / (n - 1))
+        weights[0] = share
+        families.append((f"one_whale_s{share:.2f}", weights))
+
+    two_whale_shares = np.linspace(0.35, 0.75, vectors_per_family)
+    for share in two_whale_shares:
+        weights = np.full(n, (1 - share) / (n - 2))
+        weights[0] = share * 0.58
+        weights[1] = share * 0.42
+        families.append((f"two_whales_s{share:.2f}", weights))
+
+    dirichlet_alphas = np.geomspace(0.2, 5.0, vectors_per_family)
+    for alpha in dirichlet_alphas:
+        for draw in range(vectors_per_family):
+            weights = rng.dirichlet(np.full(n, alpha))
+            families.append((f"dirichlet_a{alpha:.2f}_d{draw}", weights))
+
+    vectors = []
+    seen: set[tuple[int, ...]] = set()
+    for family, weights in families:
+        amounts = amounts_from_weights(weights, total_wealth)
+        key = tuple(int(value) for value in amounts)
+        if key in seen:
+            continue
+        seen.add(key)
+        vectors.append(SweepVector(vector_id=len(vectors), family=family, amounts=amounts))
+    return vectors
 
 
 def build_pairs(
@@ -502,6 +588,202 @@ def save_trajectory_plot(path: Path, history: np.ndarray, title_suffix: str = ""
     print(f"saved trajectory plot to {path}")
 
 
+def percentile(values: list[int], q: float) -> float:
+    if not values:
+        return float("nan")
+    return float(np.percentile(np.array(values, dtype=float), q))
+
+
+def run_small_absorption_sweep(
+    *,
+    output_path: Path,
+    summary_path: Path | None,
+    plot_path: Path | None,
+    gamblers: int,
+    total_wealth: int,
+    sims_per_vector: int,
+    vectors_per_family: int,
+    seed: int | None,
+    max_rounds: int,
+    pairing: str,
+    warmup_rounds: int,
+) -> None:
+    rng = np.random.default_rng(seed)
+    vectors = build_small_sweep_vectors(gamblers, total_wealth, vectors_per_family, rng)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    rows: list[dict[str, str | int | float | bool]] = []
+    with output_path.open("w", newline="") as handle:
+        fieldnames = [
+            "vector_id",
+            "family",
+            "amounts",
+            "N",
+            "S",
+            "sim",
+            "pairing",
+            "warmup_rounds",
+            "hhi",
+            "one_minus_hhi",
+            "pairwise_sum",
+            "gini",
+            "max_share",
+            "entropy",
+            "observed_time",
+            "absorbed",
+            "winner",
+        ]
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+
+        for vector in vectors:
+            metrics = wealth_metrics(vector.amounts)
+            for sim in range(sims_per_vector):
+                result = simulate_trial(
+                    vector.amounts,
+                    rng,
+                    max_rounds=max_rounds,
+                    record_history=False,
+                    pairing=pairing,
+                    warmup_rounds=warmup_rounds,
+                )
+                row = {
+                    "vector_id": vector.vector_id,
+                    "family": vector.family,
+                    "amounts": " ".join(str(int(amount)) for amount in vector.amounts),
+                    "N": gamblers,
+                    "S": total_wealth,
+                    "sim": sim,
+                    "pairing": pairing,
+                    "warmup_rounds": warmup_rounds,
+                    "hhi": metrics["hhi"],
+                    "one_minus_hhi": metrics["one_minus_hhi"],
+                    "pairwise_sum": metrics["pairwise_sum"],
+                    "gini": metrics["gini"],
+                    "max_share": metrics["max_share"],
+                    "entropy": metrics["entropy"],
+                    "observed_time": result.rounds,
+                    "absorbed": result.absorbed,
+                    "winner": result.winner,
+                }
+                writer.writerow(row)
+                rows.append(row)
+
+    print(f"saved small absorption sweep rows to {output_path}")
+    print(f"sweep vectors: {len(vectors)}")
+    print(f"simulations: {len(rows)}")
+
+    summaries = summarize_sweep_rows(rows)
+    if summary_path is not None:
+        save_sweep_summary(summary_path, summaries)
+    if plot_path is not None:
+        save_sweep_plot(plot_path, summaries)
+
+
+def summarize_sweep_rows(rows: list[dict[str, str | int | float | bool]]) -> list[dict[str, str | int | float]]:
+    grouped: dict[int, list[dict[str, str | int | float | bool]]] = {}
+    for row in rows:
+        grouped.setdefault(int(row["vector_id"]), []).append(row)
+
+    summaries: list[dict[str, str | int | float]] = []
+    for vector_id, group in sorted(grouped.items()):
+        times = [int(row["observed_time"]) for row in group]
+        absorbed_times = [int(row["observed_time"]) for row in group if bool(row["absorbed"])]
+        first = group[0]
+        absorbed_count = len(absorbed_times)
+        sims = len(group)
+        summaries.append(
+            {
+                "vector_id": vector_id,
+                "family": str(first["family"]),
+                "amounts": str(first["amounts"]),
+                "N": int(first["N"]),
+                "S": int(first["S"]),
+                "pairing": str(first["pairing"]),
+                "warmup_rounds": int(first["warmup_rounds"]),
+                "hhi": float(first["hhi"]),
+                "one_minus_hhi": float(first["one_minus_hhi"]),
+                "pairwise_sum": float(first["pairwise_sum"]),
+                "gini": float(first["gini"]),
+                "max_share": float(first["max_share"]),
+                "entropy": float(first["entropy"]),
+                "sims": sims,
+                "absorbed_count": absorbed_count,
+                "censored_count": sims - absorbed_count,
+                "censored_fraction": (sims - absorbed_count) / sims,
+                "mean_observed_time": float(np.mean(times)),
+                "median_observed_time": float(np.median(times)),
+                "p90_observed_time": percentile(times, 90),
+                "p99_observed_time": percentile(times, 99),
+                "mean_absorption_time_absorbed_only": float(np.mean(absorbed_times)) if absorbed_times else float("nan"),
+                "median_absorption_time_absorbed_only": float(np.median(absorbed_times)) if absorbed_times else float("nan"),
+                "p90_absorption_time_absorbed_only": percentile(absorbed_times, 90),
+            }
+        )
+    return summaries
+
+
+def save_sweep_summary(path: Path, summaries: list[dict[str, str | int | float]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not summaries:
+        raise ValueError("No sweep summaries to save.")
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(summaries[0].keys()))
+        writer.writeheader()
+        writer.writerows(summaries)
+    print(f"saved small absorption sweep summary to {path}")
+
+
+def save_sweep_plot(path: Path, summaries: list[dict[str, str | int | float]]) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+
+    import matplotlib.pyplot as plt
+
+    if not summaries:
+        raise ValueError("No sweep summaries to plot.")
+
+    one_minus_hhi = np.array([float(row["one_minus_hhi"]) for row in summaries])
+    pairwise = np.array([float(row["pairwise_sum"]) for row in summaries])
+    median_t = np.array([float(row["median_absorption_time_absorbed_only"]) for row in summaries])
+    mean_t = np.array([float(row["mean_absorption_time_absorbed_only"]) for row in summaries])
+    censored = np.array([float(row["censored_fraction"]) for row in summaries])
+    total_wealth = np.array([float(row["S"]) for row in summaries])
+
+    fig, axes = plt.subplots(2, 2, figsize=(12, 9))
+    axes[0, 0].scatter(one_minus_hhi, median_t / (total_wealth**2), c=censored, cmap="viridis", edgecolor="black")
+    axes[0, 0].set_xlabel("1 - HHI")
+    axes[0, 0].set_ylabel("median T / S^2")
+    axes[0, 0].set_title("Median absorption time")
+    axes[0, 0].grid(True, alpha=0.25)
+
+    axes[0, 1].scatter(one_minus_hhi, mean_t / (total_wealth**2), c=censored, cmap="viridis", edgecolor="black")
+    axes[0, 1].set_xlabel("1 - HHI")
+    axes[0, 1].set_ylabel("mean T / S^2")
+    axes[0, 1].set_title("Mean absorption time")
+    axes[0, 1].grid(True, alpha=0.25)
+
+    axes[1, 0].scatter(pairwise, median_t, c=censored, cmap="viridis", edgecolor="black")
+    axes[1, 0].set_xlabel("sum pairwise products")
+    axes[1, 0].set_ylabel("median T")
+    axes[1, 0].set_title("Pairwise product predictor")
+    axes[1, 0].grid(True, alpha=0.25)
+
+    scatter = axes[1, 1].scatter(one_minus_hhi, censored, c=pairwise, cmap="plasma", edgecolor="black")
+    axes[1, 1].set_xlabel("1 - HHI")
+    axes[1, 1].set_ylabel("censored fraction")
+    axes[1, 1].set_title("Censoring check")
+    axes[1, 1].grid(True, alpha=0.25)
+
+    fig.colorbar(scatter, ax=axes[1, 1], label="pairwise product sum")
+    fig.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=160)
+    plt.close(fig)
+    print(f"saved small absorption sweep plot to {path}")
+
+
 def animate_history(history: np.ndarray, output: Path | None, interval_ms: int) -> None:
     if output is not None:
         import matplotlib
@@ -587,6 +869,11 @@ def main() -> None:
     parser.add_argument("--hurst-samples", type=int, default=3, help="Number of sample trajectories for Hurst analysis.")
     parser.add_argument("--hurst-window-size", type=int, default=256, help="Rounds per Hurst window.")
     parser.add_argument("--hurst-step-size", type=int, default=128, help="Round stride between Hurst windows.")
+    parser.add_argument("--small-sweep-output", type=Path, help="Step-1 sweep: save one row per simulation to CSV.")
+    parser.add_argument("--small-sweep-summary", type=Path, help="Step-1 sweep: save one aggregate row per initial vector.")
+    parser.add_argument("--small-sweep-plot", type=Path, help="Step-1 sweep: save absorption-time predictor plots.")
+    parser.add_argument("--sweep-vectors-per-family", type=int, default=4, help="Initial vectors per sweep family.")
+    parser.add_argument("--sweep-sims-per-vector", type=int, default=50, help="Simulations per sweep initial vector.")
     parser.add_argument("--interval-ms", type=int, default=30, help="Animation frame interval.")
     args = parser.parse_args()
 
@@ -601,8 +888,34 @@ def main() -> None:
         parser.error("--hurst-window-size must be at least 16.")
     if args.hurst_step_size < 1:
         parser.error("--hurst-step-size must be at least 1.")
+    if args.sweep_vectors_per_family < 1:
+        parser.error("--sweep-vectors-per-family must be at least 1.")
+    if args.sweep_sims_per_vector < 1:
+        parser.error("--sweep-sims-per-vector must be at least 1.")
 
     rng = np.random.default_rng(seed)
+    if args.small_sweep_output is not None:
+        try:
+            validate_amounts(np.ones(args.gamblers, dtype=int))
+            if args.total_wealth < args.gamblers:
+                raise ValueError("--total-wealth must be at least --gamblers so every gambler can start positive.")
+            run_small_absorption_sweep(
+                output_path=args.small_sweep_output,
+                summary_path=args.small_sweep_summary,
+                plot_path=args.small_sweep_plot,
+                gamblers=args.gamblers,
+                total_wealth=args.total_wealth,
+                sims_per_vector=args.sweep_sims_per_vector,
+                vectors_per_family=args.sweep_vectors_per_family,
+                seed=seed,
+                max_rounds=args.max_rounds,
+                pairing=args.pairing,
+                warmup_rounds=args.warmup_rounds,
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
+        return
+
     try:
         amounts = get_initial_amounts(args, rng)
     except ValueError as exc:

@@ -301,6 +301,38 @@ This gives:
 
 The first goal is not final truth. The first goal is to see whether absorption time has a clear empirical relationship with initial wealth concentration.
 
+## Step 1 CLI
+
+The first implemented step is the small-system absorption sweep:
+
+```bash
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin.py \
+  --gamblers 6 \
+  --total-wealth 80 \
+  --pairing random \
+  --sweep-vectors-per-family 3 \
+  --sweep-sims-per-vector 20 \
+  --small-sweep-output outputs/small_sweep_rows.csv \
+  --small-sweep-summary outputs/small_sweep_summary.csv \
+  --small-sweep-plot outputs/small_sweep_plot.png
+```
+
+The raw output has one row per simulation. The summary output has one row per generated initial wealth vector.
+
+For the direct absorption-time study, use:
+
+```text
+--max-rounds 0
+```
+
+This is the default and means each simulation runs until true absorption.
+
+If a finite `--max-rounds` is supplied, unfinished simulations are right-censored and marked:
+
+```text
+absorbed = False
+```
+
 ## Expected Thesis
 
 The first thesis to test:

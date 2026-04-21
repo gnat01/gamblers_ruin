@@ -164,6 +164,52 @@ MPLCONFIGDIR=.mplconfig python src/gamblers_ruin.py \
   --save-hurst-plot outputs/ranked_hurst.png
 ```
 
+## Step 1: Small-System Absorption Sweep
+
+This runs many initial wealth distributions for a small system and saves one row per simulation:
+
+```bash
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin.py \
+  --gamblers 6 \
+  --total-wealth 80 \
+  --pairing random \
+  --sweep-vectors-per-family 3 \
+  --sweep-sims-per-vector 20 \
+  --small-sweep-output outputs/small_sweep_rows.csv \
+  --small-sweep-summary outputs/small_sweep_summary.csv \
+  --small-sweep-plot outputs/small_sweep_plot.png
+```
+
+The sweep output includes:
+
+```text
+initial amounts
+HHI
+1 - HHI
+sum_{i < j} A_i A_j
+Gini
+max share
+entropy
+observed absorption time
+absorbed/censored flag
+winner
+```
+
+For the first small-system study, keep `--max-rounds 0`, which means no cap. If you set a finite `--max-rounds`, rows that do not absorb by the cap are right-censored and marked with `absorbed = False`.
+
+Useful first test:
+
+```bash
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin.py \
+  --gamblers 4 \
+  --total-wealth 40 \
+  --sweep-vectors-per-family 2 \
+  --sweep-sims-per-vector 10 \
+  --small-sweep-output outputs/smoke_sweep_rows.csv \
+  --small-sweep-summary outputs/smoke_sweep_summary.csv \
+  --small-sweep-plot outputs/smoke_sweep_plot.png
+```
+
 ## Save An Animation
 
 For saved animations, set `MPLCONFIGDIR=.mplconfig` so Matplotlib writes its cache inside this repo.
@@ -211,6 +257,11 @@ python src/gamblers_ruin.py --amounts 50,25,15,10 --sims 100 --animate
 - `--hurst-samples`: number of sample trajectories used for Hurst analysis.
 - `--hurst-window-size`: rounds per Hurst window.
 - `--hurst-step-size`: stride between Hurst windows.
+- `--small-sweep-output`: run the step-1 absorption sweep and save per-simulation rows.
+- `--small-sweep-summary`: save one aggregate row per initial vector for the step-1 sweep.
+- `--small-sweep-plot`: save step-1 absorption-time predictor plots.
+- `--sweep-vectors-per-family`: number of generated initial vectors per distribution family.
+- `--sweep-sims-per-vector`: number of simulations per initial vector.
 - `--animate`: animate one sample trajectory after the repeated simulations.
 - `--output`: save animation to `.gif`, `.mp4`, or `.m4v`.
 - `--interval-ms`: animation frame interval.
