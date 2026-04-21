@@ -21,19 +21,27 @@ So the initially richest gambler should win most often across repeated experimen
 ## Setup
 
 ```bash
-python -m pip install -r requirements.txt
+python -m pip install -r docs/requirements.txt
 ```
 
 ## Run Repeated Experiments
 
 ```bash
-python gamblers_ruin.py --amounts 50,25,15,10 --trials 1000 --seed 7
+python src/gamblers_ruin.py --amounts 50,25,15,10 --sims 1000 --seed 7
 ```
 
 ## Save One Animation
 
 ```bash
-MPLCONFIGDIR=.mplconfig python gamblers_ruin.py --amounts 50,25,15,10 --trials 1000 --seed 7 --animate --output outputs/run.gif
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin.py --amounts 50,25,15,10 --sims 1000 --seed 7 --animate --output outputs/run.gif
 ```
 
 Use `--seed -1` for unpredictable randomness.
+
+By default, simulations run until absorption. For large total wealth this can take a while; use `--max-rounds` if you want a finite cap.
+
+## Save Table And Plot
+
+```bash
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin.py --gamblers 6 --total-wealth 100 --sims 100 --save-table outputs/table.csv --save-plot outputs/frequencies.png
+```
