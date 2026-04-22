@@ -164,6 +164,87 @@ def morans_i(values: np.ndarray, neighborhood: str) -> float:
     return float((side * side / weights) * (numerator / denom)) if weights else float("nan")
 
 
+def wealth_concentration(amounts: np.ndarray) -> dict[str, float]:
+    flat = amounts.ravel().astype(float)
+    total = float(flat.sum())
+    if total <= 0:
+        return {"hhi": float("nan"), "one_minus_hhi": float("nan"), "gini": float("nan"), "max_share": float("nan")}
+    shares = flat / total
+    sorted_values = np.sort(flat)
+    n = len(sorted_values)
+    gini = float((2 * np.sum(np.arange(1, n + 1) * sorted_values)) / (n * total) - (n + 1) / n)
+    hhi = float(np.sum(shares**2))
+    return {
+        "hhi": hhi,
+        "one_minus_hhi": 1 - hhi,
+        "gini": gini,
+        "max_share": float(shares.max()),
+    }
+
+
+def hhi_of_weights(weights: np.ndarray) -> float:
+    shares = weights / weights.sum()
+    return float(np.sum(shares**2))
+
+
+def initial_lattice_with_target_hhi(
+    side: int,
+    total_wealth: int,
+    target_hhi: float,
+    rng: np.random.Generator,
+    tolerance: float,
+    max_attempts: int,
+) -> tuple[np.ndarray, float]:
+    sites = side * side
+    min_hhi = 1 / sites
+    max_hhi = ((total_wealth - sites + 1) / total_wealth) ** 2 + (sites - 1) * (1 / total_wealth) ** 2
+    if target_hhi < min_hhi - tolerance or target_hhi > max_hhi + tolerance:
+        raise ValueError(f"target HHI {target_hhi:.4f} is outside feasible range [{min_hhi:.4f}, {max_hhi:.4f}]")
+
+    best_amounts: np.ndarray | None = None
+    best_error = float("inf")
+    best_hhi = float("nan")
+    uniform = np.ones(sites)
+
+    for _ in range(max_attempts):
+        spike = rng.dirichlet(np.full(sites, 0.08))
+        if hhi_of_weights(spike) < target_hhi:
+            hotspot = rng.integers(sites)
+            spike = np.full(sites, 1e-9)
+            spike[hotspot] = 1.0
+
+        low, high = 0.0, 1.0
+        for _ in range(40):
+            mix = (low + high) / 2
+            weights = (1 - mix) * uniform + mix * spike
+            hhi = hhi_of_weights(weights)
+            if hhi < target_hhi:
+                low = mix
+            else:
+                high = mix
+
+        weights = (1 - high) * uniform + high * spike
+        amounts = np.floor((total_wealth - sites) * weights / weights.sum()).astype(int) + 1
+        remainder = total_wealth - int(amounts.sum())
+        if remainder:
+            raw = (total_wealth - sites) * weights / weights.sum()
+            order = np.argsort(raw - np.floor(raw))[::-1]
+            amounts[order[:remainder]] += 1
+
+        measured_hhi = wealth_concentration(amounts.reshape(side, side))["hhi"]
+        error = abs(measured_hhi - target_hhi)
+        if error < best_error:
+            best_amounts = amounts.copy()
+            best_error = error
+            best_hhi = measured_hhi
+        if error <= tolerance:
+            break
+
+    if best_amounts is None:
+        raise RuntimeError("failed to generate target-HHI lattice")
+    return best_amounts.reshape(side, side), best_hhi
+
+
 def lattice_metrics(round_index: int, amounts: np.ndarray, neighborhood: str) -> dict[str, float | int]:
     active = amounts > 0
     sizes = component_sizes(active, neighborhood)
@@ -307,6 +388,39 @@ def save_metrics_plot(path: Path, metrics: list[dict[str, float | int]]) -> None
     print(f"saved metrics plot to {path}")
 
 
+def save_wealth_histogram(path: Path, result: LatticeResult, bins: int) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    initial_all = result.initial.ravel()
+    final_all = result.final.ravel()
+    final_active = final_all[final_all > 0]
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.8))
+    axes[0].hist(initial_all, bins=bins, alpha=0.65, label="initial", color="#1f77b4")
+    axes[0].hist(final_all, bins=bins, alpha=0.65, label="final incl. zeros", color="#d62728")
+    axes[0].set_title("All sites")
+    axes[0].set_xlabel("wealth")
+    axes[0].set_ylabel("site count")
+    axes[0].legend(frameon=False)
+    axes[0].grid(axis="y", alpha=0.25)
+
+    if len(final_active):
+        axes[1].hist(final_active, bins=bins, color="#2ca02c")
+    axes[1].set_title("Final active sites only")
+    axes[1].set_xlabel("wealth")
+    axes[1].set_ylabel("site count")
+    axes[1].grid(axis="y", alpha=0.25)
+
+    fig.tight_layout()
+    fig.savefig(path, dpi=170)
+    plt.close(fig)
+    print(f"saved wealth histogram to {path}")
+
+
 def save_animation(path: Path, frames: list[np.ndarray], interval_ms: int) -> None:
     import matplotlib
 
@@ -343,19 +457,20 @@ def run_bifurcation(args: argparse.Namespace, seed: int | None) -> None:
     import matplotlib.pyplot as plt
 
     rng = np.random.default_rng(seed)
-    values = np.linspace(args.bifurcation_min, args.bifurcation_max, args.bifurcation_steps)
+    total_wealth = args.total_wealth if args.total_wealth is not None else args.N * args.N * args.initial_wealth
+    values = np.arange(args.bifurcation_hhi_min, args.bifurcation_hhi_max + args.bifurcation_hhi_step / 2, args.bifurcation_hhi_step)
     rows = []
-    for heterogeneity in values:
+    for target_hhi in values:
         for sim in range(args.sims):
-            initial = initial_lattice(
+            initial, measured_target_hhi = initial_lattice_with_target_hhi(
                 args.N,
-                "random-gamma",
-                args.initial_wealth,
-                args.total_wealth,
-                heterogeneity,
-                args.seed_count,
+                total_wealth,
+                float(target_hhi),
                 rng,
+                args.bifurcation_hhi_tolerance,
+                args.bifurcation_hhi_attempts,
             )
+            initial_concentration = wealth_concentration(initial)
             result = simulate_lattice(
                 initial,
                 args.neighborhood,
@@ -365,10 +480,20 @@ def run_bifurcation(args: argparse.Namespace, seed: int | None) -> None:
                 metric_every=max(1, args.metric_every),
             )
             final_metrics = lattice_metrics(result.rounds, result.final, args.neighborhood)
+            final_concentration = wealth_concentration(result.final)
             rows.append(
                 {
-                    "heterogeneity": heterogeneity,
+                    "target_hhi": float(target_hhi),
+                    "measured_target_hhi": measured_target_hhi,
                     "sim": sim,
+                    "initial_hhi": initial_concentration["hhi"],
+                    "initial_one_minus_hhi": initial_concentration["one_minus_hhi"],
+                    "initial_gini": initial_concentration["gini"],
+                    "initial_max_share": initial_concentration["max_share"],
+                    "final_hhi": final_concentration["hhi"],
+                    "final_one_minus_hhi": final_concentration["one_minus_hhi"],
+                    "final_gini": final_concentration["gini"],
+                    "final_max_share": final_concentration["max_share"],
                     "rounds": result.rounds,
                     "frozen": result.frozen,
                     "active_density": final_metrics["active_density"],
@@ -389,12 +514,12 @@ def run_bifurcation(args: argparse.Namespace, seed: int | None) -> None:
             ("rounds", "rounds to freeze/cap"),
         ]
         for ax, (key, label) in zip(axes.ravel(), specs):
-            ax.scatter([row["heterogeneity"] for row in rows], [row[key] for row in rows], s=18, alpha=0.7)
+            ax.scatter([row["initial_hhi"] for row in rows], [row[key] for row in rows], s=18, alpha=0.7)
             ax.set_ylabel(label)
             ax.grid(True, alpha=0.25)
         for ax in axes[-1]:
-            ax.set_xlabel("random-gamma heterogeneity alpha")
-        fig.suptitle(f"Lattice ruin bifurcation scan ({args.neighborhood})")
+            ax.set_xlabel("initial HHI")
+        fig.suptitle(f"Lattice ruin bifurcation scan by initial HHI ({args.neighborhood})")
         fig.tight_layout()
         fig.savefig(args.bifurcation_output, dpi=170)
         plt.close(fig)
@@ -428,20 +553,30 @@ def main() -> None:
     parser.add_argument("--save-metrics", type=Path, help="Save time-series pattern metrics as CSV.")
     parser.add_argument("--save-metrics-plot", type=Path, help="Save time-series pattern metrics plot.")
     parser.add_argument("--save-final-summary", type=Path, help="Save final frozen-island summary CSV.")
+    parser.add_argument("--save-wealth-histogram", type=Path, help="Save initial/final wealth histograms.")
+    parser.add_argument("--histogram-bins", type=int, default=40, help="Number of bins for wealth histograms.")
     parser.add_argument("--interval-ms", type=int, default=80, help="Animation frame interval.")
-    parser.add_argument("--bifurcation-output", type=Path, help="Save heterogeneity scan plot.")
-    parser.add_argument("--bifurcation-table", type=Path, help="Save heterogeneity scan raw CSV.")
-    parser.add_argument("--bifurcation-min", type=float, default=0.2)
-    parser.add_argument("--bifurcation-max", type=float, default=5.0)
-    parser.add_argument("--bifurcation-steps", type=int, default=12)
+    parser.add_argument("--bifurcation-output", type=Path, help="Save target-HHI bifurcation plot.")
+    parser.add_argument("--bifurcation-table", type=Path, help="Save target-HHI bifurcation raw CSV.")
+    parser.add_argument("--bifurcation-hhi-min", type=float, default=0.01)
+    parser.add_argument("--bifurcation-hhi-max", type=float, default=0.50)
+    parser.add_argument("--bifurcation-hhi-step", type=float, default=0.01)
+    parser.add_argument("--bifurcation-hhi-tolerance", type=float, default=0.002)
+    parser.add_argument("--bifurcation-hhi-attempts", type=int, default=30)
     args = parser.parse_args()
 
     if args.sims < 1:
         parser.error("--sims must be at least 1.")
     if args.frame_every < 0 or args.metric_every < 1:
         parser.error("--frame-every must be nonnegative and --metric-every must be positive.")
-    if args.bifurcation_steps < 2:
-        parser.error("--bifurcation-steps must be at least 2.")
+    if args.histogram_bins < 1:
+        parser.error("--histogram-bins must be positive.")
+    if args.bifurcation_hhi_step <= 0:
+        parser.error("--bifurcation-hhi-step must be positive.")
+    if args.bifurcation_hhi_min >= args.bifurcation_hhi_max:
+        parser.error("--bifurcation-hhi-min must be less than --bifurcation-hhi-max.")
+    if args.bifurcation_hhi_attempts < 1:
+        parser.error("--bifurcation-hhi-attempts must be at least 1.")
 
     seed = None if args.seed == -1 else args.seed
     if args.bifurcation_output is not None or args.bifurcation_table is not None:
@@ -486,6 +621,8 @@ def main() -> None:
         save_heatmaps(args.save_heatmaps, result, f"{args.neighborhood}, {args.initial_mode}")
     if args.save_metrics_plot is not None:
         save_metrics_plot(args.save_metrics_plot, result.metrics)
+    if args.save_wealth_histogram is not None:
+        save_wealth_histogram(args.save_wealth_histogram, result, args.histogram_bins)
     if args.save_animation is not None:
         save_animation(args.save_animation, result.frames, args.interval_ms)
 

@@ -310,3 +310,114 @@ Run details are in:
 ```text
 docs/how_to_run.md
 ```
+
+## Ways To Run V0
+
+The main script is:
+
+```text
+src/gamblers_ruin_square_lattice.py
+```
+
+The most useful first run saves the actual spatial pattern:
+
+```bash
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
+  --N 40 \
+  --neighborhood neumann \
+  --initial-mode random-gamma \
+  --heterogeneity 5.0 \
+  --initial-wealth 25 \
+  --max-rounds 3000 \
+  --frame-every 20 \
+  --metric-every 10 \
+  --save-animation outputs/lattice_neumann.gif \
+  --save-heatmaps outputs/lattice_neumann_heatmaps.png \
+  --save-wealth-histogram outputs/lattice_neumann_histogram.png \
+  --save-metrics outputs/lattice_neumann_metrics.csv \
+  --save-metrics-plot outputs/lattice_neumann_metrics.png \
+  --save-final-summary outputs/lattice_neumann_summary.csv
+```
+
+Change the neighborhood with:
+
+```text
+--neighborhood neumann
+--neighborhood moore
+```
+
+Change the initial field with:
+
+```text
+--initial-mode uniform
+--initial-mode random-gamma
+--initial-mode gradient
+--initial-mode seeds
+```
+
+Use larger `--initial-wealth` values for coarsening and visible fronts. Very small values create rapid death-zone fragmentation.
+
+## Bifurcation Parameter
+
+The bifurcation parameter should be the measured initial HHI:
+
+```text
+HHI = sum_x (A_x / S)^2
+```
+
+This is better than using a generator parameter such as gamma alpha because HHI is the actual initial wealth concentration of the realized lattice.
+
+Interpretation:
+
+```text
+low HHI  = diffuse/equal initial wealth
+high HHI = concentrated initial wealth
+```
+
+The code uses target HHI values to construct initial lattices, but it records and plots measured HHI:
+
+```text
+target_hhi
+measured_target_hhi
+initial_hhi
+initial_one_minus_hhi
+initial_gini
+initial_max_share
+```
+
+The main scan is:
+
+```bash
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
+  --N 32 \
+  --neighborhood neumann \
+  --initial-wealth 25 \
+  --max-rounds 2000 \
+  --sims 5 \
+  --bifurcation-hhi-min 0.01 \
+  --bifurcation-hhi-max 0.50 \
+  --bifurcation-hhi-step 0.01 \
+  --bifurcation-output outputs/lattice_bifurcation.png \
+  --bifurcation-table outputs/lattice_bifurcation.csv
+```
+
+The plotted responses are:
+
+```text
+final active density
+final cluster count
+largest island fraction
+time to freeze or cap
+```
+
+This asks whether the final spatial pattern changes structurally as the initial wealth field moves from diffuse to concentrated.
+
+Feasibility constraints:
+
+```text
+minimum HHI = 1 / (N*N)
+high target HHI requires enough total wealth
+integer wealth prevents exact targeting
+```
+
+Therefore the measured `initial_hhi` column is the value to use in analysis.

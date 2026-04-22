@@ -250,13 +250,15 @@ In v0, dead sites are barriers. The simulation stops when no adjacent active-act
 
 ### Quick Pattern Run
 
+Use larger `--initial-wealth` values when you want coarsening and visible fronts. Very small values, such as `4`, create rapid death-zone fragmentation.
+
 ```bash
 MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
   --N 40 \
   --neighborhood neumann \
   --initial-mode random-gamma \
-  --heterogeneity 0.8 \
-  --initial-wealth 4 \
+  --heterogeneity 5.0 \
+  --initial-wealth 25 \
   --max-rounds 3000 \
   --frame-every 20 \
   --metric-every 10 \
@@ -264,6 +266,7 @@ MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
   --save-heatmaps outputs/lattice_neumann_heatmaps.png \
   --save-metrics outputs/lattice_neumann_metrics.csv \
   --save-metrics-plot outputs/lattice_neumann_metrics.png \
+  --save-wealth-histogram outputs/lattice_neumann_histogram.png \
   --save-final-summary outputs/lattice_neumann_summary.csv
 ```
 
@@ -274,8 +277,8 @@ MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
   --N 40 \
   --neighborhood moore \
   --initial-mode random-gamma \
-  --heterogeneity 0.8 \
-  --initial-wealth 4 \
+  --heterogeneity 5.0 \
+  --initial-wealth 25 \
   --max-rounds 3000 \
   --frame-every 20 \
   --metric-every 10 \
@@ -283,6 +286,7 @@ MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
   --save-heatmaps outputs/lattice_moore_heatmaps.png \
   --save-metrics outputs/lattice_moore_metrics.csv \
   --save-metrics-plot outputs/lattice_moore_metrics.png \
+  --save-wealth-histogram outputs/lattice_moore_histogram.png \
   --save-final-summary outputs/lattice_moore_summary.csv
 ```
 
@@ -326,6 +330,14 @@ mean active wealth
 Moran's I for wealth
 ```
 
+The wealth histogram output shows:
+
+```text
+initial wealth over all sites
+final wealth over all sites, including zeros
+final wealth over active sites only
+```
+
 The most useful visual outputs are:
 
 ```text
@@ -333,27 +345,69 @@ wealth heatmap animation
 initial/final heatmaps
 final active-island mask
 metrics time series
+wealth histogram
 ```
 
-### Bifurcation-Style Scan
+### Bifurcation-Style Scan By Initial HHI
 
-This scans the `random-gamma` heterogeneity parameter and plots final pattern outcomes:
+This targets initial HHI directly, then plots final pattern outcomes against measured initial HHI. This is the preferred bifurcation-style experiment because HHI is the actual initial inequality/concentration parameter.
+
+Interpretation:
+
+```text
+low HHI  = initially diffuse/equal wealth
+high HHI = initially concentrated wealth
+```
+
+The CLI uses `target_hhi` values to generate initial lattices, but the plot uses measured `initial_hhi`. This matters because integer wealth and the constraint that every site starts positive make exact targeting impossible in some cases.
 
 ```bash
 MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
   --N 32 \
   --neighborhood neumann \
-  --initial-wealth 4 \
+  --initial-wealth 25 \
   --max-rounds 2000 \
   --sims 5 \
-  --bifurcation-min 0.2 \
-  --bifurcation-max 5.0 \
-  --bifurcation-steps 16 \
+  --bifurcation-hhi-min 0.01 \
+  --bifurcation-hhi-max 0.50 \
+  --bifurcation-hhi-step 0.01 \
   --bifurcation-output outputs/lattice_bifurcation.png \
   --bifurcation-table outputs/lattice_bifurcation.csv
 ```
 
-The bifurcation plot shows final active density, final cluster count, largest island fraction, and time to freeze/cap against the initial heterogeneity parameter.
+The bifurcation plot shows final active density, final cluster count, largest island fraction, and time to freeze/cap against initial HHI.
+
+The table records:
+
+```text
+target_hhi
+measured_target_hhi
+initial_hhi
+initial_one_minus_hhi
+initial_gini
+initial_max_share
+final_hhi
+final_gini
+final pattern metrics
+```
+
+For an `N x N` lattice, the minimum feasible HHI is `1 / (N*N)`. Very high target HHI values also require enough total wealth to concentrate wealth while leaving every site initially positive.
+
+For a broader scan, increase `--N`, `--initial-wealth`, and `--sims`:
+
+```bash
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
+  --N 50 \
+  --neighborhood moore \
+  --initial-wealth 50 \
+  --max-rounds 5000 \
+  --sims 10 \
+  --bifurcation-hhi-min 0.01 \
+  --bifurcation-hhi-max 0.50 \
+  --bifurcation-hhi-step 0.01 \
+  --bifurcation-output outputs/lattice_bifurcation_large.png \
+  --bifurcation-table outputs/lattice_bifurcation_large.csv
+```
 
 ## Useful Flags
 
