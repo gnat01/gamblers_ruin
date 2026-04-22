@@ -613,23 +613,26 @@ def save_cluster_size_plot(path: Path, result: LatticeResult, cluster_sizes_by_s
     sizes, means, lows, highs = aggregate_cluster_counts(cluster_sizes_by_sim)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4.6))
-    axes[0].imshow(result.final > 0, cmap="gray_r", interpolation="nearest")
-    axes[0].set_title("final active mask")
-    axes[0].set_xticks([])
-    axes[0].set_yticks([])
+    fig, axes = plt.subplots(2, 3, figsize=(15, 8.6))
+    mask_ax = axes[0, 0]
+    hist_ax = axes[0, 1]
+    loglog_ax = axes[0, 2]
+    mask_ax.imshow(result.final > 0, cmap="gray_r", interpolation="nearest")
+    mask_ax.set_title("final active mask")
+    mask_ax.set_xticks([])
+    mask_ax.set_yticks([])
 
     if len(final_sizes):
         unique_sizes = np.unique(final_sizes)
-        axes[1].hist(final_sizes, bins=min(40, max(5, len(unique_sizes))), color="#4c78a8")
-        axes[1].set_xlabel("cluster size")
-        axes[1].set_ylabel("cluster count")
-        axes[1].set_title("last simulation histogram")
-        axes[1].grid(axis="y", alpha=0.25)
+        hist_ax.hist(final_sizes, bins=min(40, max(5, len(unique_sizes))), color="#4c78a8")
+        hist_ax.set_xlabel("cluster size")
+        hist_ax.set_ylabel("cluster count")
+        hist_ax.set_title("last simulation histogram")
+        hist_ax.grid(axis="y", alpha=0.25)
 
         positive = means > 0
-        axes[2].fill_between(sizes[positive], lows[positive], highs[positive], color="black", alpha=0.18, label="90% band")
-        axes[2].loglog(sizes[positive], means[positive], "o-", color="red", linewidth=2, label="mean over sims")
+        loglog_ax.fill_between(sizes[positive], lows[positive], highs[positive], color="black", alpha=0.18, label="90% band")
+        loglog_ax.loglog(sizes[positive], means[positive], "o-", color="red", linewidth=2, label="mean over sims")
         left_mask = positive & (sizes >= 1) & (sizes <= 10)
         right_mask = positive & (sizes > 10)
         left_fit = loglog_fit(sizes[left_mask], means[left_mask]) if np.count_nonzero(left_mask) >= 2 else None
@@ -638,7 +641,7 @@ def save_cluster_size_plot(path: Path, result: LatticeResult, cluster_sizes_by_s
         annotations = []
         if left_fit is not None:
             left_slope, _, left_r2, left_fitted = left_fit
-            axes[2].loglog(
+            loglog_ax.loglog(
                 sizes[left_mask],
                 left_fitted,
                 "--",
@@ -649,7 +652,7 @@ def save_cluster_size_plot(path: Path, result: LatticeResult, cluster_sizes_by_s
             annotations.append(rf"1-10: slope={left_slope:.2f}, $R^2={left_r2:.2f}$")
         if right_fit is not None:
             right_slope, _, right_r2, right_fitted = right_fit
-            axes[2].loglog(
+            loglog_ax.loglog(
                 sizes[right_mask],
                 right_fitted,
                 "--",
@@ -658,12 +661,12 @@ def save_cluster_size_plot(path: Path, result: LatticeResult, cluster_sizes_by_s
                 label="fit: >10",
             )
             annotations.append(rf">10: slope={right_slope:.2f}, $R^2={right_r2:.2f}$")
-        axes[2].axvline(10, color="gray", linestyle=":", linewidth=1.5)
+        loglog_ax.axvline(10, color="gray", linestyle=":", linewidth=1.5)
 
         if left_fit is None and right_fit is None:
             slope, _, r2, fitted = loglog_fit(sizes, means)
             if not np.isnan(r2):
-                axes[2].loglog(
+                loglog_ax.loglog(
                     sizes[positive],
                     fitted[positive],
                     "--",
@@ -672,27 +675,30 @@ def save_cluster_size_plot(path: Path, result: LatticeResult, cluster_sizes_by_s
                     label="global fit",
                 )
                 annotations.append(rf"global: slope={slope:.2f}, $R^2={r2:.2f}$")
-        axes[2].set_xlabel("cluster size")
-        axes[2].set_ylabel("number of clusters")
-        axes[2].set_title("aggregate log-log distribution")
-        axes[2].grid(True, which="both", alpha=0.25)
-        axes[2].legend(frameon=False, loc="upper right", fontsize=8)
+        loglog_ax.set_xlabel("cluster size")
+        loglog_ax.set_ylabel("number of clusters")
+        loglog_ax.set_title("aggregate log-log distribution")
+        loglog_ax.grid(True, which="both", alpha=0.25)
+        loglog_ax.legend(frameon=False, loc="upper right", fontsize=8)
         if annotations:
-            axes[2].text(
+            loglog_ax.text(
                 0.5,
                 0.96,
                 "\n".join(annotations),
-                transform=axes[2].transAxes,
+                transform=loglog_ax.transAxes,
                 fontsize=7,
                 va="top",
                 ha="center",
                 bbox={"boxstyle": "round,pad=0.25", "facecolor": "white", "edgecolor": "0.7", "alpha": 0.9},
             )
     else:
-        for ax in axes[1:]:
+        for ax in (hist_ax, loglog_ax):
             ax.text(0.5, 0.5, "no active clusters", ha="center", va="center", transform=ax.transAxes)
             ax.set_xticks([])
             ax.set_yticks([])
+
+    for ax in axes[1, :]:
+        ax.axis("off")
 
     fig.tight_layout()
     fig.savefig(path, dpi=170)
@@ -859,6 +865,20 @@ def fit_exponential_decay(x: np.ndarray, y: np.ndarray) -> tuple[float, float, f
     return float(slope), float(intercept), float(r2), fitted
 
 
+def summarize_by_p(p: np.ndarray, values: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    unique_p = np.array(sorted(set(float(value) for value in p)))
+    means = []
+    lows = []
+    highs = []
+    for value in unique_p:
+        mask = np.isclose(p, value)
+        group = values[mask]
+        means.append(float(np.mean(group)))
+        lows.append(float(np.percentile(group, 5)))
+        highs.append(float(np.percentile(group, 95)))
+    return unique_p, np.array(means), np.array(lows), np.array(highs)
+
+
 def save_nonlocal_scan_plot(path: Path, rows: list[dict[str, float | int | bool]]) -> None:
     import matplotlib
 
@@ -882,16 +902,19 @@ def save_nonlocal_scan_plot(path: Path, rows: list[dict[str, float | int | bool]
         (realized_nonlocal, "realized nonlocal match fraction", False),
     ]
     for ax, (values, label, log_y) in zip(axes.ravel()[:5], specs):
-        ax.plot(p, values, "o-", color="#4c78a8", linewidth=1.8, markersize=4)
+        unique_p, means, lows, highs = summarize_by_p(p, values)
+        ax.scatter(p, values, color="#4c78a8", s=14, alpha=0.28, label="runs")
+        ax.fill_between(unique_p, lows, highs, color="black", alpha=0.16, label="90% band")
+        ax.plot(unique_p, means, "o-", color="red", linewidth=2.2, markersize=4, label="mean")
         if log_y:
             ax.set_yscale("log")
-            slope, _, r2, fitted = fit_exponential_decay(p, values)
+            slope, _, r2, fitted = fit_exponential_decay(unique_p, means)
             if not np.isnan(r2):
-                ax.plot(p, fitted, "--", color="red", linewidth=2, label=rf"log fit $R^2={r2:.2f}$")
-                ax.legend(frameon=False, loc="best", fontsize=8)
+                ax.plot(unique_p, fitted, "--", color="blue", linewidth=2, label=rf"log-mean fit $R^2={r2:.2f}$")
         ax.set_xlabel("nonlocal edge probability p")
         ax.set_ylabel(label)
         ax.grid(True, alpha=0.25)
+        ax.legend(frameon=False, loc="best", fontsize=8)
 
     axes.ravel()[5].axis("off")
     fig.suptitle("Small-world nonlocality scan")
@@ -908,21 +931,35 @@ def save_nonlocal_trajectory_plot(path: Path, selected: dict[float, list[dict[st
     import matplotlib.pyplot as plt
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4.6))
+    fig, axes = plt.subplots(2, 3, figsize=(15, 8.6), squeeze=False)
     keys = [
         ("active_density", "active density"),
         ("cluster_count", "cluster count"),
         ("largest_cluster_fraction", "largest cluster / active"),
     ]
-    for ax, (key, label) in zip(axes, keys):
+    for col, (key, label) in enumerate(keys):
+        ax = axes[0, col]
         for p, metrics in selected.items():
             rounds = [row["round"] for row in metrics]
             values = [row[key] for row in metrics]
             ax.plot(rounds, values, linewidth=1.8, label=f"p={p:.2f}")
         ax.set_xlabel("round")
         ax.set_ylabel(label)
+        ax.set_title(f"{label} over time")
         ax.grid(True, alpha=0.25)
-    axes[0].legend(frameon=False, fontsize=8)
+
+        log_ax = axes[1, col]
+        for p, metrics in selected.items():
+            rounds = np.array([row["round"] for row in metrics], dtype=float)
+            values = np.array([row[key] for row in metrics], dtype=float)
+            mask = (rounds > 0) & (values > 0)
+            if np.any(mask):
+                log_ax.loglog(rounds[mask], values[mask], linewidth=1.8, label=f"p={p:.2f}")
+        log_ax.set_xlabel("round")
+        log_ax.set_ylabel(label)
+        log_ax.set_title(f"log-log {label}")
+        log_ax.grid(True, which="both", alpha=0.25)
+    axes[0, 0].legend(frameon=False, fontsize=8)
     fig.suptitle("Pattern metrics for selected nonlocal probabilities")
     fig.tight_layout()
     fig.savefig(path, dpi=170)
@@ -932,64 +969,77 @@ def save_nonlocal_trajectory_plot(path: Path, selected: dict[float, list[dict[st
 
 def run_nonlocal_scan(args: argparse.Namespace, seed: int | None) -> None:
     rng = np.random.default_rng(seed)
-    initial = initial_lattice(
-        args.N,
-        args.initial_mode,
-        args.initial_wealth,
-        args.total_wealth,
-        args.heterogeneity,
-        args.seed_count,
-        rng,
-    )
+    initial_lattices = [
+        initial_lattice(
+            args.N,
+            args.initial_mode,
+            args.initial_wealth,
+            args.total_wealth,
+            args.heterogeneity,
+            args.seed_count,
+            rng,
+        )
+        for _ in range(args.sims)
+    ]
     local_edges = neighbor_edges(args.N, args.neighborhood)
     p_values = np.arange(args.nonlocal_p_min, args.nonlocal_p_max + args.nonlocal_p_step / 2, args.nonlocal_p_step)
-    selected_p = [float(value) for value in args.nonlocal_selected_p]
+    if args.nonlocal_selected_p is None:
+        selected_p = np.linspace(args.nonlocal_p_min, args.nonlocal_p_max, args.nonlocal_selected_count).tolist()
+    else:
+        selected_p = [float(value) for value in args.nonlocal_selected_p]
     rows = []
     selected_metrics: dict[float, list[dict[str, float | int]]] = {}
 
     for p in p_values:
-        graph_rng = np.random.default_rng(None if seed is None else seed + int(round(p * 100_000)) + 17)
-        sim_rng = np.random.default_rng(None if seed is None else seed + int(round(p * 100_000)) + 997)
-        edges, is_nonlocal = add_nonlocal_edges(local_edges, args.N, float(p), graph_rng)
-        result = simulate_lattice_on_edges(
-            initial,
-            edges,
-            is_nonlocal,
-            args.neighborhood,
-            args.max_rounds,
-            sim_rng,
-            args.metric_every,
-        )
-        final_metrics = lattice_metrics(result.rounds, result.final, args.neighborhood)
-        active_sites = int(final_metrics["active_sites"])
-        absorbed = active_sites <= 1
-        capped = args.max_rounds > 0 and result.rounds >= args.max_rounds and not absorbed and not result.frozen
-        total_matches = result.local_matches + result.nonlocal_matches
-        row = {
-            "p": float(p),
-            "local_edges": int(len(local_edges)),
-            "nonlocal_edges": int(is_nonlocal.sum()),
-            "mean_degree": float(2 * len(edges) / (args.N * args.N)),
-            "rounds": result.rounds,
-            "absorbed": absorbed,
-            "frozen": result.frozen,
-            "capped": capped,
-            "local_matches": result.local_matches,
-            "nonlocal_matches": result.nonlocal_matches,
-            "realized_nonlocal_match_fraction": result.nonlocal_matches / total_matches if total_matches else 0.0,
-            "final_active_density": final_metrics["active_density"],
-            "final_cluster_count": final_metrics["cluster_count"],
-            "final_largest_cluster_fraction": final_metrics["largest_cluster_fraction"],
-            "final_interface_length": final_metrics["interface_length"],
-            "winner_site": int(np.argmax(result.final)) if absorbed else -1,
-        }
-        rows.append(row)
-        if any(abs(float(p) - value) <= args.nonlocal_p_step / 2 for value in selected_p):
-            selected_metrics[float(p)] = result.metrics
-        print(
-            f"p={p:.2f}: rounds={result.rounds} absorbed={absorbed} frozen={result.frozen} "
-            f"nonlocal_edges={int(is_nonlocal.sum())}"
-        )
+        for sim, initial in enumerate(initial_lattices):
+            if seed is None:
+                graph_rng = np.random.default_rng()
+                sim_rng = np.random.default_rng()
+            else:
+                p_seed = int(round(float(p) * 100_000))
+                graph_rng = np.random.default_rng(seed + p_seed + sim * 1_000_003 + 17)
+                sim_rng = np.random.default_rng(seed + p_seed + sim * 1_000_003 + 997)
+            edges, is_nonlocal = add_nonlocal_edges(local_edges, args.N, float(p), graph_rng)
+            result = simulate_lattice_on_edges(
+                initial,
+                edges,
+                is_nonlocal,
+                args.neighborhood,
+                args.max_rounds,
+                sim_rng,
+                args.metric_every,
+            )
+            final_metrics = lattice_metrics(result.rounds, result.final, args.neighborhood)
+            active_sites = int(final_metrics["active_sites"])
+            absorbed = active_sites <= 1
+            capped = args.max_rounds > 0 and result.rounds >= args.max_rounds and not absorbed and not result.frozen
+            total_matches = result.local_matches + result.nonlocal_matches
+            row = {
+                "p": float(p),
+                "sim": sim,
+                "local_edges": int(len(local_edges)),
+                "nonlocal_edges": int(is_nonlocal.sum()),
+                "mean_degree": float(2 * len(edges) / (args.N * args.N)),
+                "rounds": result.rounds,
+                "absorbed": absorbed,
+                "frozen": result.frozen,
+                "capped": capped,
+                "local_matches": result.local_matches,
+                "nonlocal_matches": result.nonlocal_matches,
+                "realized_nonlocal_match_fraction": result.nonlocal_matches / total_matches if total_matches else 0.0,
+                "final_active_density": final_metrics["active_density"],
+                "final_cluster_count": final_metrics["cluster_count"],
+                "final_largest_cluster_fraction": final_metrics["largest_cluster_fraction"],
+                "final_interface_length": final_metrics["interface_length"],
+                "winner_site": int(np.argmax(result.final)) if absorbed else -1,
+            }
+            rows.append(row)
+            if sim == 0 and any(abs(float(p) - value) <= args.nonlocal_p_step / 2 for value in selected_p):
+                selected_metrics[float(p)] = result.metrics
+            print(
+                f"p={p:.2f} sim={sim}: rounds={result.rounds} absorbed={absorbed} frozen={result.frozen} "
+                f"nonlocal_edges={int(is_nonlocal.sum())}"
+            )
 
     if args.nonlocal_table is not None:
         args.nonlocal_table.parent.mkdir(parents=True, exist_ok=True)
@@ -1047,9 +1097,10 @@ def main() -> None:
         "--nonlocal-selected-p",
         type=float,
         nargs="*",
-        default=[0.01, 0.05, 0.10, 0.20, 0.40],
+        default=None,
         help="Selected p values for trajectory plots.",
     )
+    parser.add_argument("--nonlocal-selected-count", type=int, default=6, help="Default number of evenly spaced p values for trajectory plots.")
     args = parser.parse_args()
 
     if args.sims < 1:
@@ -1070,6 +1121,8 @@ def main() -> None:
         parser.error("--nonlocal-p-step must be positive.")
     if args.nonlocal_p_min < 0 or args.nonlocal_p_max > 1 or args.nonlocal_p_min > args.nonlocal_p_max:
         parser.error("nonlocal p range must satisfy 0 <= min <= max <= 1.")
+    if args.nonlocal_selected_count < 2:
+        parser.error("--nonlocal-selected-count must be at least 2.")
 
     seed = None if args.seed == -1 else args.seed
     if args.bifurcation_output is not None or args.bifurcation_table is not None:

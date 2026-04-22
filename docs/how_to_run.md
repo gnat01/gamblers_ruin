@@ -497,9 +497,32 @@ MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
   --nonlocal-p-step 0.01 \
   --nonlocal-table outputs/nonlocal_scan_N100_seed123.csv \
   --nonlocal-plot outputs/nonlocal_scan_N100_seed123.png \
-  --nonlocal-trajectory-plot outputs/nonlocal_trajectories_N100_seed123.png \
-  --nonlocal-selected-p 0.01 0.05 0.10 0.20 0.40
+  --nonlocal-trajectory-plot outputs/nonlocal_trajectories_N100_seed123.png
 ```
+
+Paper-II uncapped scan, using `N = 100`, initial wealth `10`, and ten simulations per `p`:
+
+```bash
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
+  --N 100 \
+  --neighborhood neumann \
+  --initial-mode uniform \
+  --initial-wealth 10 \
+  --max-rounds 0 \
+  --seed 123 \
+  --metric-every 1000 \
+  --sims 10 \
+  --nonlocal-scan \
+  --nonlocal-p-min 0.04 \
+  --nonlocal-p-max 0.90 \
+  --nonlocal-p-step 0.02 \
+  --nonlocal-selected-count 6 \
+  --nonlocal-table outputs/nonlocal_scan_N100_inw10_uncapped.csv \
+  --nonlocal-plot outputs/nonlocal_scan_N100_inw10_uncapped.png \
+  --nonlocal-trajectory-plot outputs/nonlocal_trajectories_N100_inw10_uncapped.png
+```
+
+In this scan, `--max-rounds 0` means no cap. Each run stops only at global absorption or frozen isolation. With `--sims 10`, the table has ten rows per `p`, and the summary plot shows raw runs, a red mean curve, and black 90% bands.
 
 The table records:
 
@@ -530,6 +553,18 @@ largest cluster fraction vs p
 realized nonlocal match fraction vs p
 ```
 
+By default, the trajectory plot uses evenly spaced `p` values across the scan range, including the minimum and maximum. Control this with:
+
+```text
+--nonlocal-selected-count 6
+```
+
+or explicitly choose values:
+
+```text
+--nonlocal-selected-p 0.01 0.05 0.10 0.20 0.40
+```
+
 For a faster smoke test:
 
 ```bash
@@ -547,8 +582,7 @@ MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
   --nonlocal-p-step 0.03 \
   --nonlocal-table outputs/nonlocal_scan_smoke.csv \
   --nonlocal-plot outputs/nonlocal_scan_smoke.png \
-  --nonlocal-trajectory-plot outputs/nonlocal_trajectories_smoke.png \
-  --nonlocal-selected-p 0.01 0.04 0.10
+  --nonlocal-trajectory-plot outputs/nonlocal_trajectories_smoke.png
 ```
 
 ## Useful Flags
