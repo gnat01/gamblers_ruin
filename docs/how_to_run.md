@@ -238,6 +238,123 @@ This opens a Matplotlib window if your Python environment has a GUI backend avai
 python src/gamblers_ruin.py --amounts 50,25,15,10 --sims 100 --animate
 ```
 
+## Square Lattice Gambler's Ruin
+
+The lattice version lives in:
+
+```bash
+python src/gamblers_ruin_square_lattice.py
+```
+
+In v0, dead sites are barriers. The simulation stops when no adjacent active-active pair remains, so the final state can be multiple frozen islands instead of one global survivor.
+
+### Quick Pattern Run
+
+```bash
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
+  --N 40 \
+  --neighborhood neumann \
+  --initial-mode random-gamma \
+  --heterogeneity 0.8 \
+  --initial-wealth 4 \
+  --max-rounds 3000 \
+  --frame-every 20 \
+  --metric-every 10 \
+  --save-animation outputs/lattice_neumann.gif \
+  --save-heatmaps outputs/lattice_neumann_heatmaps.png \
+  --save-metrics outputs/lattice_neumann_metrics.csv \
+  --save-metrics-plot outputs/lattice_neumann_metrics.png \
+  --save-final-summary outputs/lattice_neumann_summary.csv
+```
+
+### Moore Neighborhood
+
+```bash
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
+  --N 40 \
+  --neighborhood moore \
+  --initial-mode random-gamma \
+  --heterogeneity 0.8 \
+  --initial-wealth 4 \
+  --max-rounds 3000 \
+  --frame-every 20 \
+  --metric-every 10 \
+  --save-animation outputs/lattice_moore.gif \
+  --save-heatmaps outputs/lattice_moore_heatmaps.png \
+  --save-metrics outputs/lattice_moore_metrics.csv \
+  --save-metrics-plot outputs/lattice_moore_metrics.png \
+  --save-final-summary outputs/lattice_moore_summary.csv
+```
+
+### Initial Wealth Fields
+
+Uniform:
+
+```bash
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py --N 30 --initial-mode uniform --initial-wealth 5 --save-heatmaps outputs/lattice_uniform.png
+```
+
+Random gamma wealth field:
+
+```bash
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py --N 30 --initial-mode random-gamma --heterogeneity 0.5 --initial-wealth 5 --save-heatmaps outputs/lattice_gamma.png
+```
+
+Gradient:
+
+```bash
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py --N 30 --initial-mode gradient --initial-wealth 5 --save-heatmaps outputs/lattice_gradient.png
+```
+
+Rich seeds in a poorer background:
+
+```bash
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py --N 30 --initial-mode seeds --seed-count 6 --heterogeneity 10 --initial-wealth 5 --save-heatmaps outputs/lattice_seeds.png
+```
+
+### Pattern Metrics
+
+The lattice metrics CSV and plot track:
+
+```text
+active density
+cluster count
+largest cluster fraction
+interface length
+max wealth
+mean active wealth
+Moran's I for wealth
+```
+
+The most useful visual outputs are:
+
+```text
+wealth heatmap animation
+initial/final heatmaps
+final active-island mask
+metrics time series
+```
+
+### Bifurcation-Style Scan
+
+This scans the `random-gamma` heterogeneity parameter and plots final pattern outcomes:
+
+```bash
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
+  --N 32 \
+  --neighborhood neumann \
+  --initial-wealth 4 \
+  --max-rounds 2000 \
+  --sims 5 \
+  --bifurcation-min 0.2 \
+  --bifurcation-max 5.0 \
+  --bifurcation-steps 16 \
+  --bifurcation-output outputs/lattice_bifurcation.png \
+  --bifurcation-table outputs/lattice_bifurcation.csv
+```
+
+The bifurcation plot shows final active density, final cluster count, largest island fraction, and time to freeze/cap against the initial heterogeneity parameter.
+
 ## Useful Flags
 
 - `--amounts`: comma-separated exact initial amounts; overrides generated amounts.
