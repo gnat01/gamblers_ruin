@@ -474,6 +474,83 @@ MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
   --bifurcation-table outputs/lattice_bifurcation_large.csv
 ```
 
+### Watts-Strogatz-Style Nonlocality Scan
+
+This keeps the same initial lattice for every `p`, then adds static nonlocal edges. For each vertex, with probability `p`, the code picks one random non-neighbor and adds an undirected long-range edge. The local lattice edges remain.
+
+This tests whether a small fraction of long-range edges destroys frozen islands and restores global absorption.
+
+Full scan:
+
+```bash
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
+  --N 100 \
+  --neighborhood neumann \
+  --initial-mode uniform \
+  --initial-wealth 100 \
+  --max-rounds 0 \
+  --seed 123 \
+  --metric-every 100 \
+  --nonlocal-scan \
+  --nonlocal-p-min 0.01 \
+  --nonlocal-p-max 0.40 \
+  --nonlocal-p-step 0.01 \
+  --nonlocal-table outputs/nonlocal_scan_N100_seed123.csv \
+  --nonlocal-plot outputs/nonlocal_scan_N100_seed123.png \
+  --nonlocal-trajectory-plot outputs/nonlocal_trajectories_N100_seed123.png \
+  --nonlocal-selected-p 0.01 0.05 0.10 0.20 0.40
+```
+
+The table records:
+
+```text
+p
+local_edges
+nonlocal_edges
+mean_degree
+rounds
+absorbed / frozen / capped
+local_matches
+nonlocal_matches
+realized_nonlocal_match_fraction
+final_active_density
+final_cluster_count
+final_largest_cluster_fraction
+final_interface_length
+winner_site
+```
+
+The summary plot shows:
+
+```text
+rounds to absorb/freeze/cap vs p
+final active density vs p
+final cluster count vs p
+largest cluster fraction vs p
+realized nonlocal match fraction vs p
+```
+
+For a faster smoke test:
+
+```bash
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
+  --N 30 \
+  --neighborhood neumann \
+  --initial-mode uniform \
+  --initial-wealth 30 \
+  --max-rounds 5000 \
+  --seed 123 \
+  --metric-every 100 \
+  --nonlocal-scan \
+  --nonlocal-p-min 0.01 \
+  --nonlocal-p-max 0.10 \
+  --nonlocal-p-step 0.03 \
+  --nonlocal-table outputs/nonlocal_scan_smoke.csv \
+  --nonlocal-plot outputs/nonlocal_scan_smoke.png \
+  --nonlocal-trajectory-plot outputs/nonlocal_trajectories_smoke.png \
+  --nonlocal-selected-p 0.01 0.04 0.10
+```
+
 ## Useful Flags
 
 - `--amounts`: comma-separated exact initial amounts; overrides generated amounts.

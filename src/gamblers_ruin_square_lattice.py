@@ -22,6 +22,8 @@ class LatticeResult:
     metrics: list[dict[str, float | int]]
     frozen: bool
     rounds: int
+    local_matches: int = 0
+    nonlocal_matches: int = 0
 
 
 def initial_lattice(
@@ -85,10 +87,55 @@ def neighbor_edges(side: int, neighborhood: str) -> np.ndarray:
     return np.array(edges, dtype=int)
 
 
+def add_nonlocal_edges(
+    local_edges: np.ndarray,
+    side: int,
+    probability: float,
+    rng: np.random.Generator,
+) -> tuple[np.ndarray, np.ndarray]:
+    if probability < 0 or probability > 1:
+        raise ValueError("nonlocal probability must be between 0 and 1.")
+    site_count = side * side
+    edge_set = {tuple(edge) for edge in local_edges.tolist()}
+    nonlocal_edges = []
+    local_neighbors = [set() for _ in range(site_count)]
+    for a, b in edge_set:
+        local_neighbors[a].add(b)
+        local_neighbors[b].add(a)
+
+    all_sites = np.arange(site_count)
+    for v in range(site_count):
+        if rng.random() > probability:
+            continue
+        forbidden = local_neighbors[v] | {v}
+        candidates = np.array([u for u in all_sites if int(u) not in forbidden], dtype=int)
+        if len(candidates) == 0:
+            continue
+        u = int(rng.choice(candidates))
+        edge = (min(v, u), max(v, u))
+        if edge not in edge_set:
+            edge_set.add(edge)
+            nonlocal_edges.append(edge)
+
+    if nonlocal_edges:
+        all_edges = np.vstack([local_edges, np.array(nonlocal_edges, dtype=int)])
+        is_nonlocal = np.concatenate([np.zeros(len(local_edges), dtype=bool), np.ones(len(nonlocal_edges), dtype=bool)])
+    else:
+        all_edges = local_edges.copy()
+        is_nonlocal = np.zeros(len(local_edges), dtype=bool)
+    return all_edges, is_nonlocal
+
+
 def active_edges(amounts: np.ndarray, edges: np.ndarray) -> np.ndarray:
     flat = amounts.ravel()
     mask = (flat[edges[:, 0]] > 0) & (flat[edges[:, 1]] > 0)
     return edges[mask]
+
+
+def active_edges_with_types(amounts: np.ndarray, edges: np.ndarray, is_nonlocal: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    flat = amounts.ravel()
+    mask = (flat[edges[:, 0]] > 0) & (flat[edges[:, 1]] > 0)
+    return edges[mask], is_nonlocal[mask]
 
 
 def random_matching(active_edge_array: np.ndarray, site_count: int, rng: np.random.Generator) -> np.ndarray:
@@ -104,6 +151,30 @@ def random_matching(active_edge_array: np.ndarray, site_count: int, rng: np.rand
             used[b] = True
             matched.append((a, b))
     return np.array(matched, dtype=int) if matched else np.empty((0, 2), dtype=int)
+
+
+def random_matching_with_types(
+    active_edge_array: np.ndarray,
+    active_is_nonlocal: np.ndarray,
+    site_count: int,
+    rng: np.random.Generator,
+) -> tuple[np.ndarray, np.ndarray]:
+    if len(active_edge_array) == 0:
+        return active_edge_array, active_is_nonlocal
+    order = rng.permutation(len(active_edge_array))
+    used = np.zeros(site_count, dtype=bool)
+    matched = []
+    matched_types = []
+    for idx in order:
+        a, b = active_edge_array[idx]
+        if not used[a] and not used[b]:
+            used[a] = True
+            used[b] = True
+            matched.append((a, b))
+            matched_types.append(bool(active_is_nonlocal[idx]))
+    if not matched:
+        return np.empty((0, 2), dtype=int), np.empty(0, dtype=bool)
+    return np.array(matched, dtype=int), np.array(matched_types, dtype=bool)
 
 
 def component_sizes(active: np.ndarray, neighborhood: str) -> list[int]:
@@ -308,6 +379,65 @@ def simulate_lattice(
     if int(metrics[-1]["round"]) != rounds:
         metrics.append(lattice_metrics(rounds, amounts, neighborhood))
     return LatticeResult(initial=initial, final=amounts, frames=frames, metrics=metrics, frozen=frozen, rounds=rounds)
+
+
+def simulate_lattice_on_edges(
+    initial: np.ndarray,
+    edges: np.ndarray,
+    is_nonlocal: np.ndarray,
+    neighborhood: str,
+    max_rounds: int,
+    rng: np.random.Generator,
+    metric_every: int,
+) -> LatticeResult:
+    amounts = initial.copy()
+    side = amounts.shape[0]
+    metrics = [lattice_metrics(0, amounts, neighborhood)]
+    frozen = False
+    rounds = 0
+    local_matches = 0
+    nonlocal_matches = 0
+
+    while max_rounds <= 0 or rounds < max_rounds:
+        active_edge_array, active_types = active_edges_with_types(amounts, edges, is_nonlocal)
+        if len(active_edge_array) == 0:
+            frozen = True
+            break
+
+        matching, matched_types = random_matching_with_types(active_edge_array, active_types, side * side, rng)
+        if len(matching) == 0:
+            frozen = True
+            break
+
+        flat = amounts.ravel()
+        first_wins = rng.integers(2, size=len(matching), dtype=bool)
+        winners = np.where(first_wins, matching[:, 0], matching[:, 1])
+        losers = np.where(first_wins, matching[:, 1], matching[:, 0])
+        np.add.at(flat, winners, 1)
+        np.add.at(flat, losers, -1)
+        nonlocal_matches += int(matched_types.sum())
+        local_matches += int(len(matched_types) - matched_types.sum())
+        rounds += 1
+
+        if metric_every > 0 and rounds % metric_every == 0:
+            metrics.append(lattice_metrics(rounds, amounts, neighborhood))
+
+        if np.count_nonzero(amounts) <= 1:
+            frozen = False
+            break
+
+    if int(metrics[-1]["round"]) != rounds:
+        metrics.append(lattice_metrics(rounds, amounts, neighborhood))
+    return LatticeResult(
+        initial=initial,
+        final=amounts,
+        frames=[initial.copy(), amounts.copy()],
+        metrics=metrics,
+        frozen=frozen,
+        rounds=rounds,
+        local_matches=local_matches,
+        nonlocal_matches=nonlocal_matches,
+    )
 
 
 def save_metrics(path: Path, metrics: list[dict[str, float | int]]) -> None:
@@ -714,6 +844,166 @@ def run_bifurcation(args: argparse.Namespace, seed: int | None) -> None:
         print(f"saved bifurcation table to {args.bifurcation_table}")
 
 
+def fit_exponential_decay(x: np.ndarray, y: np.ndarray) -> tuple[float, float, float, np.ndarray]:
+    mask = (y > 0) & np.isfinite(y)
+    if np.count_nonzero(mask) < 2:
+        return float("nan"), float("nan"), float("nan"), np.full_like(y, np.nan, dtype=float)
+    log_y = np.log(y[mask])
+    slope, intercept = np.polyfit(x[mask], log_y, 1)
+    pred_log = slope * x[mask] + intercept
+    ss_res = float(np.sum((log_y - pred_log) ** 2))
+    ss_tot = float(np.sum((log_y - log_y.mean()) ** 2))
+    r2 = 1 - ss_res / ss_tot if ss_tot else float("nan")
+    fitted = np.full_like(y, np.nan, dtype=float)
+    fitted[mask] = np.exp(pred_log)
+    return float(slope), float(intercept), float(r2), fitted
+
+
+def save_nonlocal_scan_plot(path: Path, rows: list[dict[str, float | int | bool]]) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    p = np.array([float(row["p"]) for row in rows])
+    times = np.array([float(row["rounds"]) for row in rows])
+    active_density = np.array([float(row["final_active_density"]) for row in rows])
+    cluster_count = np.array([float(row["final_cluster_count"]) for row in rows])
+    largest_fraction = np.array([float(row["final_largest_cluster_fraction"]) for row in rows])
+    realized_nonlocal = np.array([float(row["realized_nonlocal_match_fraction"]) for row in rows])
+
+    fig, axes = plt.subplots(2, 3, figsize=(15, 8.2))
+    specs = [
+        (times, "rounds to absorb/freeze/cap", True),
+        (active_density, "final active density", False),
+        (cluster_count, "final cluster count", False),
+        (largest_fraction, "largest cluster / active", False),
+        (realized_nonlocal, "realized nonlocal match fraction", False),
+    ]
+    for ax, (values, label, log_y) in zip(axes.ravel()[:5], specs):
+        ax.plot(p, values, "o-", color="#4c78a8", linewidth=1.8, markersize=4)
+        if log_y:
+            ax.set_yscale("log")
+            slope, _, r2, fitted = fit_exponential_decay(p, values)
+            if not np.isnan(r2):
+                ax.plot(p, fitted, "--", color="red", linewidth=2, label=rf"log fit $R^2={r2:.2f}$")
+                ax.legend(frameon=False, loc="best", fontsize=8)
+        ax.set_xlabel("nonlocal edge probability p")
+        ax.set_ylabel(label)
+        ax.grid(True, alpha=0.25)
+
+    axes.ravel()[5].axis("off")
+    fig.suptitle("Small-world nonlocality scan")
+    fig.tight_layout()
+    fig.savefig(path, dpi=170)
+    plt.close(fig)
+    print(f"saved nonlocal scan plot to {path}")
+
+
+def save_nonlocal_trajectory_plot(path: Path, selected: dict[float, list[dict[str, float | int]]]) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.6))
+    keys = [
+        ("active_density", "active density"),
+        ("cluster_count", "cluster count"),
+        ("largest_cluster_fraction", "largest cluster / active"),
+    ]
+    for ax, (key, label) in zip(axes, keys):
+        for p, metrics in selected.items():
+            rounds = [row["round"] for row in metrics]
+            values = [row[key] for row in metrics]
+            ax.plot(rounds, values, linewidth=1.8, label=f"p={p:.2f}")
+        ax.set_xlabel("round")
+        ax.set_ylabel(label)
+        ax.grid(True, alpha=0.25)
+    axes[0].legend(frameon=False, fontsize=8)
+    fig.suptitle("Pattern metrics for selected nonlocal probabilities")
+    fig.tight_layout()
+    fig.savefig(path, dpi=170)
+    plt.close(fig)
+    print(f"saved nonlocal trajectory plot to {path}")
+
+
+def run_nonlocal_scan(args: argparse.Namespace, seed: int | None) -> None:
+    rng = np.random.default_rng(seed)
+    initial = initial_lattice(
+        args.N,
+        args.initial_mode,
+        args.initial_wealth,
+        args.total_wealth,
+        args.heterogeneity,
+        args.seed_count,
+        rng,
+    )
+    local_edges = neighbor_edges(args.N, args.neighborhood)
+    p_values = np.arange(args.nonlocal_p_min, args.nonlocal_p_max + args.nonlocal_p_step / 2, args.nonlocal_p_step)
+    selected_p = [float(value) for value in args.nonlocal_selected_p]
+    rows = []
+    selected_metrics: dict[float, list[dict[str, float | int]]] = {}
+
+    for p in p_values:
+        graph_rng = np.random.default_rng(None if seed is None else seed + int(round(p * 100_000)) + 17)
+        sim_rng = np.random.default_rng(None if seed is None else seed + int(round(p * 100_000)) + 997)
+        edges, is_nonlocal = add_nonlocal_edges(local_edges, args.N, float(p), graph_rng)
+        result = simulate_lattice_on_edges(
+            initial,
+            edges,
+            is_nonlocal,
+            args.neighborhood,
+            args.max_rounds,
+            sim_rng,
+            args.metric_every,
+        )
+        final_metrics = lattice_metrics(result.rounds, result.final, args.neighborhood)
+        active_sites = int(final_metrics["active_sites"])
+        absorbed = active_sites <= 1
+        capped = args.max_rounds > 0 and result.rounds >= args.max_rounds and not absorbed and not result.frozen
+        total_matches = result.local_matches + result.nonlocal_matches
+        row = {
+            "p": float(p),
+            "local_edges": int(len(local_edges)),
+            "nonlocal_edges": int(is_nonlocal.sum()),
+            "mean_degree": float(2 * len(edges) / (args.N * args.N)),
+            "rounds": result.rounds,
+            "absorbed": absorbed,
+            "frozen": result.frozen,
+            "capped": capped,
+            "local_matches": result.local_matches,
+            "nonlocal_matches": result.nonlocal_matches,
+            "realized_nonlocal_match_fraction": result.nonlocal_matches / total_matches if total_matches else 0.0,
+            "final_active_density": final_metrics["active_density"],
+            "final_cluster_count": final_metrics["cluster_count"],
+            "final_largest_cluster_fraction": final_metrics["largest_cluster_fraction"],
+            "final_interface_length": final_metrics["interface_length"],
+            "winner_site": int(np.argmax(result.final)) if absorbed else -1,
+        }
+        rows.append(row)
+        if any(abs(float(p) - value) <= args.nonlocal_p_step / 2 for value in selected_p):
+            selected_metrics[float(p)] = result.metrics
+        print(
+            f"p={p:.2f}: rounds={result.rounds} absorbed={absorbed} frozen={result.frozen} "
+            f"nonlocal_edges={int(is_nonlocal.sum())}"
+        )
+
+    if args.nonlocal_table is not None:
+        args.nonlocal_table.parent.mkdir(parents=True, exist_ok=True)
+        with args.nonlocal_table.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(rows)
+        print(f"saved nonlocal scan table to {args.nonlocal_table}")
+    if args.nonlocal_plot is not None:
+        save_nonlocal_scan_plot(args.nonlocal_plot, rows)
+    if args.nonlocal_trajectory_plot is not None and selected_metrics:
+        save_nonlocal_trajectory_plot(args.nonlocal_trajectory_plot, selected_metrics)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Square-lattice multiplayer gambler's ruin.")
     parser.add_argument("--N", type=int, default=40, help="Square side length.")
@@ -746,6 +1036,20 @@ def main() -> None:
     parser.add_argument("--bifurcation-hhi-tolerance", type=float, default=0.002)
     parser.add_argument("--bifurcation-hhi-attempts", type=int, default=30)
     parser.add_argument("--bifurcation-bins", type=int, default=8, help="Representative HHI bins for red mean curve and 90%% band.")
+    parser.add_argument("--nonlocal-scan", action="store_true", help="Run static small-world nonlocal edge scan.")
+    parser.add_argument("--nonlocal-p-min", type=float, default=0.01)
+    parser.add_argument("--nonlocal-p-max", type=float, default=0.40)
+    parser.add_argument("--nonlocal-p-step", type=float, default=0.01)
+    parser.add_argument("--nonlocal-table", type=Path, help="Save nonlocal scan table.")
+    parser.add_argument("--nonlocal-plot", type=Path, help="Save nonlocal scan summary plot.")
+    parser.add_argument("--nonlocal-trajectory-plot", type=Path, help="Save selected-p trajectory comparison plot.")
+    parser.add_argument(
+        "--nonlocal-selected-p",
+        type=float,
+        nargs="*",
+        default=[0.01, 0.05, 0.10, 0.20, 0.40],
+        help="Selected p values for trajectory plots.",
+    )
     args = parser.parse_args()
 
     if args.sims < 1:
@@ -762,10 +1066,17 @@ def main() -> None:
         parser.error("--bifurcation-hhi-attempts must be at least 1.")
     if args.bifurcation_bins < 2:
         parser.error("--bifurcation-bins must be at least 2.")
+    if args.nonlocal_p_step <= 0:
+        parser.error("--nonlocal-p-step must be positive.")
+    if args.nonlocal_p_min < 0 or args.nonlocal_p_max > 1 or args.nonlocal_p_min > args.nonlocal_p_max:
+        parser.error("nonlocal p range must satisfy 0 <= min <= max <= 1.")
 
     seed = None if args.seed == -1 else args.seed
     if args.bifurcation_output is not None or args.bifurcation_table is not None:
         run_bifurcation(args, seed)
+        return
+    if args.nonlocal_scan:
+        run_nonlocal_scan(args, seed)
         return
 
     rng = np.random.default_rng(seed)
