@@ -450,6 +450,32 @@ def save_animation(path: Path, frames: list[np.ndarray], interval_ms: int) -> No
     print(f"saved animation to {path}")
 
 
+def binned_curve(
+    rows: list[dict[str, float | int | bool]],
+    key: str,
+    bins: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    x = np.array([float(row["initial_hhi"]) for row in rows])
+    y = np.array([float(row[key]) for row in rows])
+    edges = np.linspace(float(x.min()), float(x.max()), bins + 1)
+    centers = []
+    means = []
+    lows = []
+    highs = []
+    for i in range(bins):
+        if i == bins - 1:
+            mask = (x >= edges[i]) & (x <= edges[i + 1])
+        else:
+            mask = (x >= edges[i]) & (x < edges[i + 1])
+        if not np.any(mask):
+            continue
+        centers.append(float(np.mean(x[mask])))
+        means.append(float(np.mean(y[mask])))
+        lows.append(float(np.percentile(y[mask], 5)))
+        highs.append(float(np.percentile(y[mask], 95)))
+    return np.array(centers), np.array(means), np.array(lows), np.array(highs)
+
+
 def run_bifurcation(args: argparse.Namespace, seed: int | None) -> None:
     import matplotlib
 
@@ -514,9 +540,14 @@ def run_bifurcation(args: argparse.Namespace, seed: int | None) -> None:
             ("rounds", "rounds to freeze/cap"),
         ]
         for ax, (key, label) in zip(axes.ravel(), specs):
-            ax.scatter([row["initial_hhi"] for row in rows], [row[key] for row in rows], s=18, alpha=0.7)
+            ax.scatter([row["initial_hhi"] for row in rows], [row[key] for row in rows], s=14, alpha=0.35, color="#4c78a8")
+            centers, means, lows, highs = binned_curve(rows, key, args.bifurcation_bins)
+            if len(centers):
+                ax.fill_between(centers, lows, highs, color="black", alpha=0.18, label="90% band")
+                ax.plot(centers, means, color="red", linewidth=2.4, label="bin mean")
             ax.set_ylabel(label)
             ax.grid(True, alpha=0.25)
+        axes[0, 0].legend(frameon=False, loc="best")
         for ax in axes[-1]:
             ax.set_xlabel("initial HHI")
         fig.suptitle(f"Lattice ruin bifurcation scan by initial HHI ({args.neighborhood})")
@@ -563,6 +594,7 @@ def main() -> None:
     parser.add_argument("--bifurcation-hhi-step", type=float, default=0.01)
     parser.add_argument("--bifurcation-hhi-tolerance", type=float, default=0.002)
     parser.add_argument("--bifurcation-hhi-attempts", type=int, default=30)
+    parser.add_argument("--bifurcation-bins", type=int, default=8, help="Representative HHI bins for red mean curve and 90%% band.")
     args = parser.parse_args()
 
     if args.sims < 1:
@@ -577,6 +609,8 @@ def main() -> None:
         parser.error("--bifurcation-hhi-min must be less than --bifurcation-hhi-max.")
     if args.bifurcation_hhi_attempts < 1:
         parser.error("--bifurcation-hhi-attempts must be at least 1.")
+    if args.bifurcation_bins < 2:
+        parser.error("--bifurcation-bins must be at least 2.")
 
     seed = None if args.seed == -1 else args.seed
     if args.bifurcation_output is not None or args.bifurcation_table is not None:

@@ -371,11 +371,12 @@ MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
   --bifurcation-hhi-min 0.01 \
   --bifurcation-hhi-max 0.50 \
   --bifurcation-hhi-step 0.01 \
+  --bifurcation-bins 8 \
   --bifurcation-output outputs/lattice_bifurcation.png \
   --bifurcation-table outputs/lattice_bifurcation.csv
 ```
 
-The bifurcation plot shows final active density, final cluster count, largest island fraction, and time to freeze/cap against initial HHI.
+The bifurcation plot shows final active density, final cluster count, largest island fraction, and time to freeze/cap against initial HHI. Blue points are individual runs, the red curve is the binned mean, and the black band is the 90% interval within each HHI bin. Use `--bifurcation-bins` to choose 5-10 representative HHI bins.
 
 The table records:
 
@@ -405,6 +406,7 @@ MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
   --bifurcation-hhi-min 0.01 \
   --bifurcation-hhi-max 0.50 \
   --bifurcation-hhi-step 0.01 \
+  --bifurcation-bins 10 \
   --bifurcation-output outputs/lattice_bifurcation_large.png \
   --bifurcation-table outputs/lattice_bifurcation_large.csv
 ```

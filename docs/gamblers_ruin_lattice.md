@@ -397,6 +397,7 @@ MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
   --bifurcation-hhi-min 0.01 \
   --bifurcation-hhi-max 0.50 \
   --bifurcation-hhi-step 0.01 \
+  --bifurcation-bins 8 \
   --bifurcation-output outputs/lattice_bifurcation.png \
   --bifurcation-table outputs/lattice_bifurcation.csv
 ```
@@ -408,6 +409,12 @@ final active density
 final cluster count
 largest island fraction
 time to freeze or cap
+```
+
+Each panel includes individual runs as blue points, a red binned mean curve, and a black 90% interval band. The bin count is controlled by:
+
+```text
+--bifurcation-bins
 ```
 
 This asks whether the final spatial pattern changes structurally as the initial wealth field moves from diffuse to concentrated.
