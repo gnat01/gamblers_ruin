@@ -334,6 +334,8 @@ MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
   --save-animation outputs/lattice_neumann.gif \
   --save-heatmaps outputs/lattice_neumann_heatmaps.png \
   --save-wealth-histogram outputs/lattice_neumann_histogram.png \
+  --save-cluster-size-table outputs/lattice_neumann_cluster_sizes.csv \
+  --save-cluster-size-plot outputs/lattice_neumann_cluster_sizes.png \
   --save-metrics outputs/lattice_neumann_metrics.csv \
   --save-metrics-plot outputs/lattice_neumann_metrics.png \
   --save-final-summary outputs/lattice_neumann_summary.csv
@@ -356,6 +358,21 @@ Change the initial field with:
 ```
 
 Use larger `--initial-wealth` values for coarsening and visible fronts. Very small values create rapid death-zone fragmentation.
+
+The cluster-size outputs are especially important for the percolation/coarsening question:
+
+```text
+--save-cluster-size-table
+--save-cluster-size-plot
+```
+
+The plot includes a log-log panel of:
+
+```text
+number of clusters of size s versus s
+```
+
+This is the most useful first view of whether the final island structure has a broad, percolation-like size distribution or is dominated by one scale.
 
 ## Bifurcation Parameter
 

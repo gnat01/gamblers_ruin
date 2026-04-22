@@ -267,6 +267,8 @@ MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
   --save-metrics outputs/lattice_neumann_metrics.csv \
   --save-metrics-plot outputs/lattice_neumann_metrics.png \
   --save-wealth-histogram outputs/lattice_neumann_histogram.png \
+  --save-cluster-size-table outputs/lattice_neumann_cluster_sizes.csv \
+  --save-cluster-size-plot outputs/lattice_neumann_cluster_sizes.png \
   --save-final-summary outputs/lattice_neumann_summary.csv
 ```
 
@@ -287,6 +289,8 @@ MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
   --save-metrics outputs/lattice_moore_metrics.csv \
   --save-metrics-plot outputs/lattice_moore_metrics.png \
   --save-wealth-histogram outputs/lattice_moore_histogram.png \
+  --save-cluster-size-table outputs/lattice_moore_cluster_sizes.csv \
+  --save-cluster-size-plot outputs/lattice_moore_cluster_sizes.png \
   --save-final-summary outputs/lattice_moore_summary.csv
 ```
 
@@ -346,6 +350,46 @@ initial/final heatmaps
 final active-island mask
 metrics time series
 wealth histogram
+cluster-size distribution
+```
+
+The cluster-size plot includes:
+
+```text
+final active mask
+cluster-size histogram
+log-log plot: number of clusters of size s vs s
+```
+
+### Cluster-Size Distribution
+
+Save the final cluster-size distribution table and plot:
+
+```bash
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
+  --N 40 \
+  --neighborhood neumann \
+  --initial-mode random-gamma \
+  --heterogeneity 5 \
+  --initial-wealth 25 \
+  --max-rounds 3000 \
+  --save-cluster-size-table outputs/lattice_neumann_cluster_sizes.csv \
+  --save-cluster-size-plot outputs/lattice_neumann_cluster_sizes.png
+```
+
+The relevant flags are:
+
+```text
+--save-cluster-size-table
+--save-cluster-size-plot
+```
+
+The plot includes:
+
+```text
+final active mask
+cluster-size histogram
+log-log plot of number of clusters of size s versus s
 ```
 
 ### Bifurcation-Style Scan By Initial HHI

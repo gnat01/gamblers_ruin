@@ -421,6 +421,61 @@ def save_wealth_histogram(path: Path, result: LatticeResult, bins: int) -> None:
     print(f"saved wealth histogram to {path}")
 
 
+def save_cluster_size_table(path: Path, result: LatticeResult, neighborhood: str) -> None:
+    sizes = sorted(component_sizes(result.final > 0, neighborhood), reverse=True)
+    counts: dict[int, int] = {}
+    for size in sizes:
+        counts[size] = counts.get(size, 0) + 1
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["cluster_size", "cluster_count"])
+        for size in sorted(counts):
+            writer.writerow([size, counts[size]])
+    print(f"saved cluster size table to {path}")
+
+
+def save_cluster_size_plot(path: Path, result: LatticeResult, neighborhood: str) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    sizes = np.array(component_sizes(result.final > 0, neighborhood), dtype=int)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.6))
+    axes[0].imshow(result.final > 0, cmap="gray_r", interpolation="nearest")
+    axes[0].set_title("final active mask")
+    axes[0].set_xticks([])
+    axes[0].set_yticks([])
+
+    if len(sizes):
+        unique_sizes, counts = np.unique(sizes, return_counts=True)
+        axes[1].hist(sizes, bins=min(40, max(5, len(unique_sizes))), color="#4c78a8")
+        axes[1].set_xlabel("cluster size")
+        axes[1].set_ylabel("cluster count")
+        axes[1].set_title("cluster-size histogram")
+        axes[1].grid(axis="y", alpha=0.25)
+
+        axes[2].loglog(unique_sizes, counts, "o-", color="red", linewidth=2)
+        axes[2].set_xlabel("cluster size")
+        axes[2].set_ylabel("number of clusters")
+        axes[2].set_title("log-log cluster-size distribution")
+        axes[2].grid(True, which="both", alpha=0.25)
+    else:
+        for ax in axes[1:]:
+            ax.text(0.5, 0.5, "no active clusters", ha="center", va="center", transform=ax.transAxes)
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+    fig.tight_layout()
+    fig.savefig(path, dpi=170)
+    plt.close(fig)
+    print(f"saved cluster size plot to {path}")
+
+
 def save_animation(path: Path, frames: list[np.ndarray], interval_ms: int) -> None:
     import matplotlib
 
@@ -585,6 +640,8 @@ def main() -> None:
     parser.add_argument("--save-metrics-plot", type=Path, help="Save time-series pattern metrics plot.")
     parser.add_argument("--save-final-summary", type=Path, help="Save final frozen-island summary CSV.")
     parser.add_argument("--save-wealth-histogram", type=Path, help="Save initial/final wealth histograms.")
+    parser.add_argument("--save-cluster-size-table", type=Path, help="Save final cluster-size distribution as CSV.")
+    parser.add_argument("--save-cluster-size-plot", type=Path, help="Save final cluster-size distribution plots.")
     parser.add_argument("--histogram-bins", type=int, default=40, help="Number of bins for wealth histograms.")
     parser.add_argument("--interval-ms", type=int, default=80, help="Animation frame interval.")
     parser.add_argument("--bifurcation-output", type=Path, help="Save target-HHI bifurcation plot.")
@@ -657,6 +714,10 @@ def main() -> None:
         save_metrics_plot(args.save_metrics_plot, result.metrics)
     if args.save_wealth_histogram is not None:
         save_wealth_histogram(args.save_wealth_histogram, result, args.histogram_bins)
+    if args.save_cluster_size_table is not None:
+        save_cluster_size_table(args.save_cluster_size_table, result, args.neighborhood)
+    if args.save_cluster_size_plot is not None:
+        save_cluster_size_plot(args.save_cluster_size_plot, result, args.neighborhood)
     if args.save_animation is not None:
         save_animation(args.save_animation, result.frames, args.interval_ms)
 
