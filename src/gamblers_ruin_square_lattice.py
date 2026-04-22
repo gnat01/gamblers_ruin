@@ -421,28 +421,66 @@ def save_wealth_histogram(path: Path, result: LatticeResult, bins: int) -> None:
     print(f"saved wealth histogram to {path}")
 
 
-def save_cluster_size_table(path: Path, result: LatticeResult, neighborhood: str) -> None:
-    sizes = sorted(component_sizes(result.final > 0, neighborhood), reverse=True)
+def cluster_count_by_size(sizes: list[int]) -> dict[int, int]:
     counts: dict[int, int] = {}
     for size in sizes:
         counts[size] = counts.get(size, 0) + 1
+    return counts
+
+
+def aggregate_cluster_counts(cluster_sizes_by_sim: list[list[int]]) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    all_sizes = sorted({size for sizes in cluster_sizes_by_sim for size in sizes})
+    if not all_sizes:
+        return np.array([]), np.array([]), np.array([]), np.array([])
+    matrix = np.zeros((len(cluster_sizes_by_sim), len(all_sizes)), dtype=float)
+    for sim, sizes in enumerate(cluster_sizes_by_sim):
+        counts = cluster_count_by_size(sizes)
+        for idx, size in enumerate(all_sizes):
+            matrix[sim, idx] = counts.get(size, 0)
+    return (
+        np.array(all_sizes, dtype=int),
+        matrix.mean(axis=0),
+        np.percentile(matrix, 5, axis=0),
+        np.percentile(matrix, 95, axis=0),
+    )
+
+
+def loglog_fit(x: np.ndarray, y: np.ndarray) -> tuple[float, float, float, np.ndarray]:
+    mask = (x > 0) & (y > 0)
+    log_x = np.log(x[mask])
+    log_y = np.log(y[mask])
+    if len(log_x) < 2:
+        return float("nan"), float("nan"), float("nan"), np.full_like(x, np.nan, dtype=float)
+    slope, intercept = np.polyfit(log_x, log_y, 1)
+    fitted_positive = np.exp(intercept + slope * log_x)
+    ss_res = float(np.sum((log_y - (intercept + slope * log_x)) ** 2))
+    ss_tot = float(np.sum((log_y - log_y.mean()) ** 2))
+    r2 = 1 - ss_res / ss_tot if ss_tot else float("nan")
+    fitted = np.full_like(x, np.nan, dtype=float)
+    fitted[mask] = fitted_positive
+    return float(slope), float(intercept), float(r2), fitted
+
+
+def save_cluster_size_table(path: Path, cluster_sizes_by_sim: list[list[int]]) -> None:
+    sizes, means, lows, highs = aggregate_cluster_counts(cluster_sizes_by_sim)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["cluster_size", "cluster_count"])
-        for size in sorted(counts):
-            writer.writerow([size, counts[size]])
+        writer.writerow(["cluster_size", "mean_cluster_count", "p05_cluster_count", "p95_cluster_count"])
+        for size, mean, low, high in zip(sizes, means, lows, highs):
+            writer.writerow([int(size), mean, low, high])
     print(f"saved cluster size table to {path}")
 
 
-def save_cluster_size_plot(path: Path, result: LatticeResult, neighborhood: str) -> None:
+def save_cluster_size_plot(path: Path, result: LatticeResult, cluster_sizes_by_sim: list[list[int]]) -> None:
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    sizes = np.array(component_sizes(result.final > 0, neighborhood), dtype=int)
+    final_sizes = np.array(cluster_sizes_by_sim[-1], dtype=int) if cluster_sizes_by_sim else np.array([], dtype=int)
+    sizes, means, lows, highs = aggregate_cluster_counts(cluster_sizes_by_sim)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     fig, axes = plt.subplots(1, 3, figsize=(15, 4.6))
@@ -451,19 +489,32 @@ def save_cluster_size_plot(path: Path, result: LatticeResult, neighborhood: str)
     axes[0].set_xticks([])
     axes[0].set_yticks([])
 
-    if len(sizes):
-        unique_sizes, counts = np.unique(sizes, return_counts=True)
-        axes[1].hist(sizes, bins=min(40, max(5, len(unique_sizes))), color="#4c78a8")
+    if len(final_sizes):
+        unique_sizes = np.unique(final_sizes)
+        axes[1].hist(final_sizes, bins=min(40, max(5, len(unique_sizes))), color="#4c78a8")
         axes[1].set_xlabel("cluster size")
         axes[1].set_ylabel("cluster count")
-        axes[1].set_title("cluster-size histogram")
+        axes[1].set_title("last simulation histogram")
         axes[1].grid(axis="y", alpha=0.25)
 
-        axes[2].loglog(unique_sizes, counts, "o-", color="red", linewidth=2)
+        positive = means > 0
+        axes[2].fill_between(sizes[positive], lows[positive], highs[positive], color="black", alpha=0.18, label="90% band")
+        axes[2].loglog(sizes[positive], means[positive], "o-", color="red", linewidth=2, label="mean over sims")
+        slope, _, r2, fitted = loglog_fit(sizes, means)
+        if not np.isnan(r2):
+            axes[2].loglog(
+                sizes[positive],
+                fitted[positive],
+                "--",
+                color="blue",
+                linewidth=2,
+                label=rf"log-log fit: slope={slope:.2f}, $R^2={r2:.2f}$",
+            )
         axes[2].set_xlabel("cluster size")
         axes[2].set_ylabel("number of clusters")
-        axes[2].set_title("log-log cluster-size distribution")
+        axes[2].set_title("aggregate log-log distribution")
         axes[2].grid(True, which="both", alpha=0.25)
+        axes[2].legend(frameon=False, loc="lower left")
     else:
         for ax in axes[1:]:
             ax.text(0.5, 0.5, "no active clusters", ha="center", va="center", transform=ax.transAxes)
@@ -676,6 +727,7 @@ def main() -> None:
 
     rng = np.random.default_rng(seed)
     result = None
+    cluster_sizes_by_sim: list[list[int]] = []
     for sim in range(args.sims):
         initial = initial_lattice(
             args.N,
@@ -695,6 +747,7 @@ def main() -> None:
             args.metric_every,
         )
         final_metrics = lattice_metrics(result.rounds, result.final, args.neighborhood)
+        cluster_sizes_by_sim.append(component_sizes(result.final > 0, args.neighborhood))
         print(
             f"sim {sim}: rounds={result.rounds} frozen={result.frozen} "
             f"active_density={final_metrics['active_density']:.3f} "
@@ -715,9 +768,9 @@ def main() -> None:
     if args.save_wealth_histogram is not None:
         save_wealth_histogram(args.save_wealth_histogram, result, args.histogram_bins)
     if args.save_cluster_size_table is not None:
-        save_cluster_size_table(args.save_cluster_size_table, result, args.neighborhood)
+        save_cluster_size_table(args.save_cluster_size_table, cluster_sizes_by_sim)
     if args.save_cluster_size_plot is not None:
-        save_cluster_size_plot(args.save_cluster_size_plot, result, args.neighborhood)
+        save_cluster_size_plot(args.save_cluster_size_plot, result, cluster_sizes_by_sim)
     if args.save_animation is not None:
         save_animation(args.save_animation, result.frames, args.interval_ms)
 

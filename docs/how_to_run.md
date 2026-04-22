@@ -377,6 +377,21 @@ MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
   --save-cluster-size-plot outputs/lattice_neumann_cluster_sizes.png
 ```
 
+If you use `--sims`, the cluster-size table and log-log panel aggregate across all simulations:
+
+```bash
+MPLCONFIGDIR=.mplconfig python src/gamblers_ruin_square_lattice.py \
+  --N 100 \
+  --neighborhood neumann \
+  --initial-mode random-gamma \
+  --heterogeneity 5 \
+  --initial-wealth 25 \
+  --max-rounds 3000 \
+  --sims 10 \
+  --save-cluster-size-table outputs/lattice_neumann_cluster_sizes_N_100.csv \
+  --save-cluster-size-plot outputs/lattice_neumann_cluster_sizes_N_100.png
+```
+
 The relevant flags are:
 
 ```text
@@ -387,9 +402,11 @@ The relevant flags are:
 The plot includes:
 
 ```text
-final active mask
-cluster-size histogram
-log-log plot of number of clusters of size s versus s
+final active mask from the last simulation
+cluster-size histogram from the last simulation
+aggregate log-log plot of mean number of clusters of size s versus s
+black 90% band across simulations
+blue dashed best log-log fit with slope and R^2 in the legend
 ```
 
 ### Bifurcation-Style Scan By Initial HHI

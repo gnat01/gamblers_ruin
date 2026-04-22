@@ -372,7 +372,7 @@ The plot includes a log-log panel of:
 number of clusters of size s versus s
 ```
 
-This is the most useful first view of whether the final island structure has a broad, percolation-like size distribution or is dominated by one scale.
+If `--sims` is greater than one, the log-log panel aggregates across simulations: the red curve is the mean count for each cluster size, the black band is the 90% interval, and the blue dashed line is the best log-log fit with slope and $R^2$ in the legend. This reduces noise and is the better way to look for broad, percolation-like size distributions.
 
 ## Bifurcation Parameter
 
