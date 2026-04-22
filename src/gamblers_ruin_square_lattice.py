@@ -500,21 +500,64 @@ def save_cluster_size_plot(path: Path, result: LatticeResult, cluster_sizes_by_s
         positive = means > 0
         axes[2].fill_between(sizes[positive], lows[positive], highs[positive], color="black", alpha=0.18, label="90% band")
         axes[2].loglog(sizes[positive], means[positive], "o-", color="red", linewidth=2, label="mean over sims")
-        slope, _, r2, fitted = loglog_fit(sizes, means)
-        if not np.isnan(r2):
+        left_mask = positive & (sizes >= 1) & (sizes <= 10)
+        right_mask = positive & (sizes > 10)
+        left_fit = loglog_fit(sizes[left_mask], means[left_mask]) if np.count_nonzero(left_mask) >= 2 else None
+        right_fit = loglog_fit(sizes[right_mask], means[right_mask]) if np.count_nonzero(right_mask) >= 2 else None
+
+        annotations = []
+        if left_fit is not None:
+            left_slope, _, left_r2, left_fitted = left_fit
             axes[2].loglog(
-                sizes[positive],
-                fitted[positive],
+                sizes[left_mask],
+                left_fitted,
                 "--",
                 color="blue",
                 linewidth=2,
-                label=rf"log-log fit: slope={slope:.2f}, $R^2={r2:.2f}$",
+                label="fit: 1-10",
             )
+            annotations.append(rf"1-10: slope={left_slope:.2f}, $R^2={left_r2:.2f}$")
+        if right_fit is not None:
+            right_slope, _, right_r2, right_fitted = right_fit
+            axes[2].loglog(
+                sizes[right_mask],
+                right_fitted,
+                "--",
+                color="purple",
+                linewidth=2,
+                label="fit: >10",
+            )
+            annotations.append(rf">10: slope={right_slope:.2f}, $R^2={right_r2:.2f}$")
+        axes[2].axvline(10, color="gray", linestyle=":", linewidth=1.5)
+
+        if left_fit is None and right_fit is None:
+            slope, _, r2, fitted = loglog_fit(sizes, means)
+            if not np.isnan(r2):
+                axes[2].loglog(
+                    sizes[positive],
+                    fitted[positive],
+                    "--",
+                    color="blue",
+                    linewidth=2,
+                    label="global fit",
+                )
+                annotations.append(rf"global: slope={slope:.2f}, $R^2={r2:.2f}$")
         axes[2].set_xlabel("cluster size")
         axes[2].set_ylabel("number of clusters")
         axes[2].set_title("aggregate log-log distribution")
         axes[2].grid(True, which="both", alpha=0.25)
-        axes[2].legend(frameon=False, loc="lower left")
+        axes[2].legend(frameon=False, loc="upper right", fontsize=8)
+        if annotations:
+            axes[2].text(
+                0.5,
+                0.96,
+                "\n".join(annotations),
+                transform=axes[2].transAxes,
+                fontsize=7,
+                va="top",
+                ha="center",
+                bbox={"boxstyle": "round,pad=0.25", "facecolor": "white", "edgecolor": "0.7", "alpha": 0.9},
+            )
     else:
         for ax in axes[1:]:
             ax.text(0.5, 0.5, "no active clusters", ha="center", va="center", transform=ax.transAxes)

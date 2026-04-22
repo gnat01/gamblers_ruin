@@ -372,7 +372,7 @@ The plot includes a log-log panel of:
 number of clusters of size s versus s
 ```
 
-If `--sims` is greater than one, the log-log panel aggregates across simulations: the red curve is the mean count for each cluster size, the black band is the 90% interval, and the blue dashed line is the best log-log fit with slope and $R^2$ in the legend. This reduces noise and is the better way to look for broad, percolation-like size distributions.
+If `--sims` is greater than one, the log-log panel aggregates across simulations: the red curve is the mean count for each cluster size and the black band is the 90% interval. The plot then fits two log-log regimes: a blue dashed fit for small clusters with sizes 1-10 and a purple dashed fit for larger clusters above 10. This is better than a single naive line because the distribution often mixes many small fragments with a separate giant-cluster tail.
 
 ## Bifurcation Parameter
 

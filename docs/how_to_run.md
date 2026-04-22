@@ -406,7 +406,9 @@ final active mask from the last simulation
 cluster-size histogram from the last simulation
 aggregate log-log plot of mean number of clusters of size s versus s
 black 90% band across simulations
-blue dashed best log-log fit with slope and R^2 in the legend
+blue dashed small-cluster log-log fit with slope and R^2
+purple dashed large-cluster log-log fit with slope and R^2
+gray dotted split at cluster size 10
 ```
 
 ### Bifurcation-Style Scan By Initial HHI
